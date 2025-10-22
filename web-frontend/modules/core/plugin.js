@@ -77,6 +77,7 @@ import integrationStore from '@baserow/modules/core/store/integration'
 import userSourceStore from '@baserow/modules/core/store/userSource'
 import notificationStore from '@baserow/modules/core/store/notification'
 import userSourceUserStore from '@baserow/modules/core/store/userSourceUser'
+import workspaceSearchStore from '@baserow/modules/core/store/workspaceSearch'
 import routeMounted from '@baserow/modules/core/store/routeMounted'
 
 import en from '@baserow/modules/core/locales/en.json'
@@ -206,6 +207,7 @@ export default (context, inject) => {
   store.registerModule('userSource', userSourceStore)
   store.registerModule('notification', notificationStore)
   store.registerModule('userSourceUser', userSourceUserStore)
+  store.registerModule('workspaceSearch', workspaceSearchStore)
   store.registerModule('routeMounted', routeMounted)
 
   registry.register('authProvider', new PasswordAuthProviderType(context))
@@ -255,6 +257,7 @@ export default (context, inject) => {
   registry.register('onboarding', new TeamOnboardingType(context))
   registry.register('onboarding', new MoreOnboardingType(context))
   registry.register('onboarding', new WorkspaceOnboardingType(context))
+
   registry.register('onboarding', new InviteOnboardingType(context))
 
   registry.register('guidedTour', new SidebarGuidedTourType(context))
