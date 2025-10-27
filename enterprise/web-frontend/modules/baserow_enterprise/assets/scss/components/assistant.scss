@@ -656,3 +656,62 @@
   color: $palette-neutral-400;
   flex-shrink: 0;
 }
+
+.assistant__actions {
+  margin-top: 4px;
+  width: 100%;
+}
+
+.assistant__actions-header {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+}
+
+// Feedback buttons (inline in header)
+.assistant__feedback-button {
+  padding: 3px 6px;
+  border: none;
+  border-radius: 3px;
+  background: transparent;
+  color: $palette-neutral-500;
+  font-size: 11px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+
+  i {
+    font-size: 13px;
+  }
+
+  &:hover {
+    color: $palette-neutral-700;
+  }
+
+  &--active {
+    color: $palette-neutral-1200;
+  }
+}
+
+// Feedback Context (popup near thumb down)
+.assistant__feedback-context {
+  min-width: 280px;
+
+  textarea {
+    width: 100%;
+    min-height: 52px;
+    resize: vertical;
+  }
+}
+
+.assistant__feedback-context-content {
+  padding: 12px;
+}
+
+.assistant__feedback-context-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 10px;
+}
