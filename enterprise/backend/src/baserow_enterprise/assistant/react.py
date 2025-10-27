@@ -1,11 +1,13 @@
 from typing import Any, Callable, Literal
 
-import dspy
-from dspy.adapters.types.tool import Tool
-from dspy.predict.react import _fmt_exc
-from dspy.primitives.module import Module
-from dspy.signatures.signature import ensure_signature
-from litellm import ContextWindowExceededError
+# This file is only imported when the assistant/react.py module is used,
+# so the flake8 plugin will not complain about global imports of dspy and litell
+import dspy  # noqa: BAI001
+from dspy.adapters.types.tool import Tool  # noqa: BAI001
+from dspy.predict.react import _fmt_exc  # noqa: BAI001
+from dspy.primitives.module import Module  # noqa: BAI001
+from dspy.signatures.signature import ensure_signature  # noqa: BAI001
+from litellm import ContextWindowExceededError  # noqa: BAI001
 from loguru import logger
 
 from .types import ToolsUpgradeResponse
@@ -74,6 +76,9 @@ class ReAct(Module):
                 "After each tool call, you receive a resulting observation, which gets appended to your trajectory.\n",
                 "When writing next_thought, you may reason about the current situation and plan for future steps.",
                 "When selecting the next_tool_name and its next_tool_args, the tool must be one of:\n",
+                "Always DO the task with tools, never EXPLAIN how to do it. Return instructions only when you lack the necessary tools to complete the request.\n",
+                "Never assume a tool cannot be used based on your prior knowledge. If a tool exists that can help you, you MUST use it.\n",
+                "If you create new resources outside of your current visible context, like tables, views, fields or rows, you can navigate to them using the navigation tool.\n",
             ]
         )
 
