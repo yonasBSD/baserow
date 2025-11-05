@@ -166,6 +166,18 @@ class AIFieldType(CollationSortMixin, SelectOptionBaseFieldType):
         baserow_field_type = self.get_baserow_field_type(field)
         return baserow_field_type.contains_query(field_name, value, model_field, field)
 
+    def parse_filter_value(self, field, model_field, value):
+        baserow_field_type = self.get_baserow_field_type(field)
+        return baserow_field_type.parse_filter_value(field, model_field, value)
+
+    def get_compatible_filter_field_type(self, field):
+        """
+        For AI fields, return the underlying core field type used for filtering.
+        """
+
+        ai_field_instance = field.specific if hasattr(field, "specific") else field
+        return self.get_baserow_field_type(ai_field_instance)
+
     def contains_word_query(self, field_name, value, model_field, field):
         baserow_field_type = self.get_baserow_field_type(field)
         return baserow_field_type.contains_word_query(

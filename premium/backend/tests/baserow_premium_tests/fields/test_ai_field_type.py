@@ -1193,3 +1193,16 @@ def test_ai_field_can_be_used_in_lookup_expression(premium_data_fixture):
 
     assert formula_field is not None
     assert formula_field.formula_type == "array"
+
+
+@pytest.mark.django_db
+@pytest.mark.field_ai
+def test_ai_field_type_check_can_filter_by(premium_data_fixture):
+    user = premium_data_fixture.create_user()
+    table = premium_data_fixture.create_database_table(user=user)
+    premium_data_fixture.register_fake_generate_ai_type()
+
+    ai_field = premium_data_fixture.create_ai_field(table=table, ai_output_type="text")
+
+    ai_field_type = field_type_registry.get("ai")
+    assert ai_field_type.check_can_filter_by(ai_field) is True

@@ -182,6 +182,14 @@ export class AIFieldType extends FieldType {
     return this.getBaserowFieldType(field).isEqual(field, value1, value2)
   }
 
+  parseFilterValue(field, filterValue) {
+    return this.getBaserowFieldType(field).parseFilterValue(field, filterValue)
+  }
+
+  formatFilterValue(field, value) {
+    return this.getBaserowFieldType(field).formatFilterValue(field, value)
+  }
+
   canBeReferencedByFormulaField(field) {
     return this.getBaserowFieldType(field).canBeReferencedByFormulaField(field)
   }
@@ -213,6 +221,10 @@ export class AIFieldType extends FieldType {
 
   prepareValueForPaste(field, value) {
     return this.getBaserowFieldType(field).prepareValueForPaste(field, value)
+  }
+
+  getCompatibleFilterFieldType(field) {
+    return this.getBaserowFieldType(field)
   }
 }
 
