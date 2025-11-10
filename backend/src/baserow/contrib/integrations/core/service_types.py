@@ -6,9 +6,11 @@ from smtplib import SMTPAuthenticationError, SMTPConnectError, SMTPNotSupportedE
 from typing import Any, Callable, Dict, Generator, List, Optional, Tuple
 
 from django.conf import settings
+from django.contrib.auth.models import AbstractUser
 from django.core.mail import EmailMultiAlternatives, get_connection
 from django.db import router
-from django.db.models import Q
+from django.db.models import DurationField, ExpressionWrapper, F, Q, Value
+from django.db.models.functions import Coalesce, NullIf
 from django.urls import path
 from django.utils import timezone
 from django.utils.translation import gettext as _
@@ -21,6 +23,9 @@ from requests import exceptions as request_exceptions
 from rest_framework import serializers
 
 from baserow.config.celery import app as celery_app
+from baserow.contrib.automation.nodes.exceptions import (
+    AutomationNodeMisconfiguredService,
+)
 from baserow.contrib.integrations.core.api.webhooks.views import CoreHTTPTriggerView
 from baserow.contrib.integrations.core.constants import (
     BODY_TYPE,
@@ -1232,6 +1237,33 @@ class CorePeriodicServiceType(TriggerServiceTypeMixin, CoreServiceType):
         day_of_week: int
         day_of_month: int
 
+    def prepare_values(
+        self,
+        values: Dict[str, Any],
+        user: AbstractUser,
+        instance: Optional[CorePeriodicService] = None,
+    ) -> Dict[str, Any]:
+        """
+        Responsible for preparing and validating the periodic service values.
+        If the `interval` is set to `MINUTE`, it ensures that the `minute` value
+        is greater than or equal to the minimum allowed value defined in the settings.
+
+        :param values: The values to prepare.
+        :param user: The user creating or updating the service.
+        :param instance: The existing service instance, if updating.
+        :return: The prepared values.
+        """
+
+        minute = values.get("minute", None)
+        if values.get("interval") == PERIODIC_INTERVAL_MINUTE and minute is not None:
+            if minute < settings.INTEGRATIONS_PERIODIC_MINUTE_MIN:
+                raise AutomationNodeMisconfiguredService(
+                    "The `minute` value must be greater "
+                    f"or equal to {settings.INTEGRATIONS_PERIODIC_MINUTE_MIN}."
+                )
+
+        return super().prepare_values(values, user, instance)
+
     def can_immediately_be_tested(self, service):
         return True
 
@@ -1297,13 +1329,33 @@ class CorePeriodicServiceType(TriggerServiceTypeMixin, CoreServiceType):
         :param now: The current datetime.
         """
 
+        # Truncate to minute precision for consistent interval calculations
+        # Note: we replace the seconds and microseconds due to jitter that
+        # can exist between when the Celery task is scheduled, and when the
+        # services were actually processed. For example:
+        #
+        # Assuming `interval=minute` and `minute=2` (i.e. run every two minutes):
+        # - Celery runs at 12:00:00.500 (half a second delay)
+        # - Service is triggered, last_periodic_run = 12:00:00.500
+        # Next checks:
+        #   - At 12:01:00.400: Is 12:00:00.500 <= 11:59:00.400? NO
+        #   - At 12:02:00.300: Is 12:00:00.500 <= 12:00:00.300? NO (500ms > 300ms!)
+        #   - At 12:03:00.200: Is 12:00:00.500 <= 12:01:00.200? YES
+        now = now.replace(second=0, microsecond=0)
+
         query_conditions = Q()
         is_null = Q(last_periodic_run__isnull=True)
 
         # MINUTE
-        minute_ago = now - timedelta(minutes=1)
         minute_condition = Q(
-            is_null | Q(last_periodic_run__lt=minute_ago),
+            is_null
+            | Q(
+                last_periodic_run__lte=now
+                - ExpressionWrapper(
+                    Coalesce(NullIf(F("minute"), 0), Value(1)) * timedelta(minutes=1),
+                    output_field=DurationField(),
+                )
+            ),
             interval=PERIODIC_INTERVAL_MINUTE,
         )
         query_conditions |= minute_condition
