@@ -93,11 +93,13 @@ class UIContext(BaseModel):
 
 class AssistantMessageType(StrEnum):
     HUMAN = "human"
-    AI_MESSAGE = "ai/message"
+    AI_STARTED = "ai/started"  # Sent when AI starts generating a response
     AI_THINKING = "ai/thinking"  # Update the status bar in the UI
-    AI_REASONING = "ai/reasoning"  # Show reasoning steps before the final answer
+    AI_REASONING = "ai/reasoning"  # Show reasoning as a message before the final answer
     AI_NAVIGATION = "ai/navigation"
+    AI_MESSAGE = "ai/message"
     AI_ERROR = "ai/error"
+    AI_CANCELLED = "ai/cancelled"  # Sent when AI generation is cancelled
     TOOL_CALL = "tool_call"
     TOOL = "tool"
     CHAT_TITLE = "chat/title"
@@ -168,6 +170,16 @@ class ChatTitleMessage(BaseModel):
     content: str = Field(description="The chat title")
 
 
+class AiStartedMessage(BaseModel):
+    type: Literal["ai/started"] = AssistantMessageType.AI_STARTED.value
+    message_id: str = Field(description="The ID of the message being generated")
+
+
+class AiCancelledMessage(BaseModel):
+    type: Literal["ai/cancelled"] = AssistantMessageType.AI_CANCELLED.value
+    message_id: str = Field(description="The ID of the message that was cancelled")
+
+
 class AiErrorMessageCode(StrEnum):
     RECURSION_LIMIT_EXCEEDED = "recursion_limit_exceeded"
     TIMEOUT = "timeout"
@@ -183,12 +195,14 @@ class AiErrorMessage(BaseModel):
 
 
 AIMessageUnion = (
-    AiMessage
+    ChatTitleMessage
+    | AiMessage
     | AiErrorMessage
     | AiThinkingMessage
-    | ChatTitleMessage
     | AiMessageChunk
     | AiReasoningChunk
+    | AiStartedMessage
+    | AiCancelledMessage
 )
 AssistantMessageUnion = HumanMessage | AIMessageUnion
 
