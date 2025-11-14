@@ -372,5 +372,22 @@
     "true": "true",
     "false": "false",
     "other": "Other"
+  },
+  "generateAIValuesModal": {
+    "title": "Generate all AI values"
+  },
+  "generateAIValuesForm": {
+    "scopeLabel": "Scope",
+    "entireTable": "Entire table",
+    "skipPopulated": "Generate only values for empty cells",
+    "warningTitle": "Token Usage Warning",
+    "warningMessage": "Geenerating all AI values will consume API tokens and may take substantial time depending on the number of rows."
+  },
+  "generateAIValuesFormFooter": {
+    "generate": "Generate with AI",
+    "close": "Close"
+  },
+  "jobType": {
+    "generateAIValues": "Regenerate AI field values"
   }
 }
