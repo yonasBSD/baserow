@@ -1,4 +1,5 @@
-from typing import Dict, Iterable, List, Optional
+from collections import defaultdict
+from typing import Dict, Iterable, List, Optional, Tuple
 
 from django.contrib.auth.models import AbstractUser
 from django.contrib.postgres.search import SearchQuery, SearchRank
@@ -8,8 +9,10 @@ from django.db.models import (
     F,
     FloatField,
     IntegerField,
+    OuterRef,
     Prefetch,
     QuerySet,
+    Subquery,
     TextField,
     Value,
     When,
@@ -20,11 +23,13 @@ from django.db.models.functions import Cast, Concat, JSONObject, RowNumber
 from baserow.contrib.database.fields.handler import FieldHandler
 from baserow.contrib.database.fields.models import Field
 from baserow.contrib.database.fields.operations import ListFieldsOperationType
+from baserow.contrib.database.fields.registries import field_type_registry
 from baserow.contrib.database.models import Database
 from baserow.contrib.database.search.handler import SearchHandler
 from baserow.contrib.database.search_base import DatabaseSearchableItemType
 from baserow.contrib.database.table.models import Table
 from baserow.contrib.database.table.operations import ReadDatabaseTableOperationType
+from baserow.core.db import specific_iterator
 from baserow.core.handler import CoreHandler
 from baserow.core.models import Workspace
 from baserow.core.search.data_types import SearchResult
@@ -407,9 +412,56 @@ class RowSearchType(SearchableItemType):
 
         return qs
 
+    def _fetch_primary_field_values(
+        self,
+        rows_list: List[Dict],
+        table_id_to_primary_field: Dict[int, Tuple[Table, Field]],
+    ) -> Dict[Tuple[int, int], str]:
+        """
+        Fetch primary field values for all rows efficiently.
+        Uses the same approach as link row fields - leverages get_model()
+        and model.__str__() which already handles all field types properly.
+
+        :param rows_list: List of row dicts from search results
+        :param table_id_to_primary_field: Mapping of table IDs to their primary field
+        :return: {(table_id, row_id): human_readable_value}
+        """
+
+        rows_by_table = defaultdict(list)
+        for r in rows_list:
+            payload = r.get("payload", {})
+            table_id = payload.get("table_id")
+            row_id = payload.get("row_id")
+            rows_by_table[table_id].append(row_id)
+
+        if not rows_by_table:
+            return {}
+
+        primary_values = {}
+
+        for table_id, row_ids in rows_by_table.items():
+            table, primary_field = table_id_to_primary_field.get(table_id)
+            model = table.get_model(
+                fields=[primary_field], field_ids=[], add_dependencies=False
+            )
+            rows_qs = (
+                model.objects.only(primary_field.db_column)
+                .filter(id__in=row_ids)
+                .order_by()
+            )
+            field_type = field_type_registry.get_by_model(primary_field)
+            rows_qs = field_type.enhance_queryset(
+                rows_qs, primary_field, primary_field.db_column
+            )
+
+            for row in rows_qs:
+                primary_values[(table_id, row.id)] = str(row)
+
+        return primary_values
+
     def postprocess(self, rows: Iterable[Dict]) -> List[SearchResult]:
         """
-        Return minimal row results
+        Return minimal row results with primary field values for better UX.
         """
 
         if not rows:
@@ -435,7 +487,13 @@ class RowSearchType(SearchableItemType):
             FieldHandler()
             .get_base_fields_queryset()
             .filter(id__in=field_ids)
-            .select_related("table__database")
+            .annotate(
+                primary_field_id=Subquery(
+                    Field.objects.filter(
+                        table_id=OuterRef("table_id"), primary=True
+                    ).values("id")[:1]
+                )
+            )
         )
 
         field_id_to_name = {}
@@ -444,24 +502,35 @@ class RowSearchType(SearchableItemType):
         table_id_to_database_id = {}
         database_id_to_name = {}
         database_id_to_workspace_id = {}
+        table_id_to_primary_field = {}
+
+        primary_field_ids = set()
+        for f in fields_qs:
+            primary_field_ids.add(f.primary_field_id)
+
+        primary_fields = {
+            f.id: f
+            for f in specific_iterator(Field.objects.filter(id__in=primary_field_ids))
+        }
 
         for f in fields_qs:
             field_id_to_name[f.id] = f.name
             field_id_to_table_id[f.id] = f.table_id
-            if f.table_id:
-                table_id_to_name[f.table_id] = getattr(f.table, "name", None)
-                table_id_to_database_id[f.table_id] = getattr(
-                    f.table, "database_id", None
-                )
-                if getattr(f.table, "database_id", None):
-                    database = getattr(f.table, "database", None)
-                    if database is not None:
-                        database_id_to_name[f.table.database_id] = getattr(
-                            database, "name", None
-                        )
-                        database_id_to_workspace_id[f.table.database_id] = getattr(
-                            database, "workspace_id", None
-                        )
+            table_id_to_name[f.table_id] = f.table.name
+            table_id_to_database_id[f.table_id] = f.table.database_id
+            database_id_to_name[f.table.database_id] = f.table.database.name
+            database_id_to_workspace_id[
+                f.table.database_id
+            ] = f.table.database.workspace_id
+            table_id_to_primary_field[f.table_id] = (
+                f.table,
+                primary_fields[f.primary_field_id],
+            )
+
+        # Fetch primary field values for all rows, reusing already-fetched tables
+        primary_values = self._fetch_primary_field_values(
+            rows_list, table_id_to_primary_field
+        )
 
         results_list = []
         for r in rows_list:
@@ -492,11 +561,15 @@ class RowSearchType(SearchableItemType):
             subtitle_suffix = " / ".join(parts) if parts else None
             subtitle = f"Row in {subtitle_suffix}" if subtitle_suffix else None
 
+            # Get primary field value or fallback to "Row #N"
+            primary_value = primary_values.get((table_id_int, int(row_id)))
+            title = primary_value if primary_value else f"Row #{row_id}"
+
             results_list.append(
                 SearchResult(
                     type=self.type,
                     id=object_id,
-                    title=f"Row #{row_id}",
+                    title=title,
                     subtitle=subtitle,
                     description=None,
                     metadata={
@@ -509,6 +582,7 @@ class RowSearchType(SearchableItemType):
                         "table_name": table_name,
                         "field_name": field_name,
                         "rank": rank,
+                        "primary_field_value": primary_value,
                     },
                 )
             )
