@@ -45,6 +45,7 @@ export const FunctionFormulaComponentNode = Node.create({
   name: 'function-formula-component',
   group: 'inline',
   inline: true,
+  atom: true,
   draggable: false,
   selectable: false,
 
@@ -59,6 +60,9 @@ export const FunctionFormulaComponentNode = Node.create({
       isSelected: {
         default: false,
       },
+      hasNoArgs: {
+        default: false,
+      },
     }
   },
 
@@ -70,11 +74,12 @@ export const FunctionFormulaComponentNode = Node.create({
     ]
   },
 
-  renderHTML({ HTMLAttributes }) {
-    return [
-      'span',
-      mergeAttributes(HTMLAttributes, { 'data-formula-component': this.name }),
-    ]
+  renderHTML({ node, HTMLAttributes }) {
+    const attrs = { 'data-formula-component': this.name }
+    if (node.attrs.hasNoArgs) {
+      attrs['data-no-args'] = 'true'
+    }
+    return ['span', mergeAttributes(HTMLAttributes, attrs)]
   },
 
   addNodeView() {
@@ -87,6 +92,7 @@ export const FunctionArgumentCommaNode = Node.create({
   name: 'function-argument-comma',
   group: 'inline',
   inline: true,
+  atom: true,
   draggable: false,
   selectable: false,
 
@@ -115,8 +121,17 @@ export const FunctionClosingParenNode = Node.create({
   name: 'function-closing-paren',
   group: 'inline',
   inline: true,
+  atom: true,
   draggable: false,
   selectable: false,
+
+  addAttributes() {
+    return {
+      noArgs: {
+        default: false,
+      },
+    }
+  },
 
   parseHTML() {
     return [
@@ -126,12 +141,70 @@ export const FunctionClosingParenNode = Node.create({
     ]
   },
 
+  renderHTML({ node, HTMLAttributes }) {
+    const attrs = {
+      'data-formula-closing-paren': 'true',
+      class: 'formula-input-field__parenthesis',
+    }
+    if (node.attrs.noArgs) {
+      attrs['data-no-args'] = 'true'
+    }
+    return ['span', mergeAttributes(HTMLAttributes, attrs), ')']
+  },
+})
+
+// Atomic opening parenthesis node for grouping
+export const GroupOpeningParenNode = Node.create({
+  name: 'group-opening-paren',
+  group: 'inline',
+  inline: true,
+  atom: true,
+  draggable: false,
+  selectable: false,
+
+  parseHTML() {
+    return [
+      {
+        tag: 'span[data-group-opening-paren="true"]',
+      },
+    ]
+  },
+
   renderHTML({ HTMLAttributes }) {
     return [
       'span',
       mergeAttributes(HTMLAttributes, {
-        'data-formula-closing-paren': 'true',
-        class: 'formula-input-field__parenthesis',
+        'data-group-opening-paren': 'true',
+        class: 'formula-input-field__group-parenthesis',
+      }),
+      '(',
+    ]
+  },
+})
+
+// Atomic closing parenthesis node for grouping
+export const GroupClosingParenNode = Node.create({
+  name: 'group-closing-paren',
+  group: 'inline',
+  inline: true,
+  atom: true,
+  draggable: false,
+  selectable: false,
+
+  parseHTML() {
+    return [
+      {
+        tag: 'span[data-group-closing-paren="true"]',
+      },
+    ]
+  },
+
+  renderHTML({ HTMLAttributes }) {
+    return [
+      'span',
+      mergeAttributes(HTMLAttributes, {
+        'data-group-closing-paren': 'true',
+        class: 'formula-input-field__group-parenthesis',
       }),
       ')',
     ]
@@ -143,6 +216,7 @@ export const OperatorFormulaComponentNode = Node.create({
   name: 'operator-formula-component',
   group: 'inline',
   inline: true,
+  atom: true,
   draggable: false,
   selectable: false,
 
@@ -183,10 +257,20 @@ export const FormulaInsertionExtension = Extension.create({
       insertDataComponent:
         (path) =>
         ({ editor, commands }) => {
-          commands.insertContent({
-            type: 'get-formula-component',
-            attrs: { path },
-          })
+          commands.insertContent([
+            {
+              type: 'text',
+              text: '\u200B',
+            },
+            {
+              type: 'get-formula-component',
+              attrs: { path },
+            },
+            {
+              type: 'text',
+              text: '\u200B',
+            },
+          ])
 
           commands.focus()
 
@@ -196,7 +280,7 @@ export const FormulaInsertionExtension = Extension.create({
         (node) =>
         ({ editor, commands, state }) => {
           const functionName = node.name
-          const minArgs = node.signature?.minArgs || 1
+          const minArgs = node.signature?.minArgs || 0
 
           // Get initial cursor position
           const initialPos = state.selection.from
@@ -204,34 +288,54 @@ export const FormulaInsertionExtension = Extension.create({
           // Build all content to insert
           const contentToInsert = []
 
+          // Add ZWS before the function component
+          contentToInsert.push({ type: 'text', text: '\u200B' })
+
           // Add function component
           contentToInsert.push({
             type: 'function-formula-component',
             attrs: {
               functionName,
+              hasNoArgs: minArgs === 0,
             },
           })
 
-          // Add comma-separated placeholders based on minimum args
-          if (minArgs >= 2) {
-            for (let i = 0; i < minArgs - 1; i++) {
-              contentToInsert.push({
-                type: 'function-argument-comma',
-              })
+          // Add argument placeholders if needed
+          if (minArgs > 0) {
+            contentToInsert.push({ type: 'text', text: '\u200B' }) // First argument
+            for (let i = 1; i < minArgs; i++) {
+              contentToInsert.push({ type: 'function-argument-comma' })
+              contentToInsert.push({ type: 'text', text: '\u200B' }) // Subsequent arguments
             }
           }
 
           // Add closing parenthesis
           contentToInsert.push({
             type: 'function-closing-paren',
+            attrs: {
+              noArgs: minArgs === 0,
+            },
           })
+
+          // Always add a ZWS after the whole function call
+          // CleanupZWSExtension will remove any consecutive ZWS automatically
+          contentToInsert.push({ type: 'text', text: '\u200B' })
 
           // Insert all content at once
           commands.insertContent(contentToInsert)
 
-          // Position cursor right after the function component (before commas and closing paren)
-          // The function component is 1 node, so cursor should be at initialPos + 1
-          const targetPos = initialPos + 1
+          // Position cursor:
+          // - If no arguments expected, place after closing paren (but before the final ZWS)
+          // - Otherwise, place right after the function component (in first argument slot)
+          let targetPos
+          if (minArgs === 0) {
+            // ZWS (1) + functionNode (1) + closingParenNode (1) = 3
+            // We place cursor at position 3, which is after the closing paren but before the final ZWS
+            targetPos = initialPos + 3
+          } else {
+            // ZWS (1) + functionNode (1) = 2 (in first argument slot)
+            targetPos = initialPos + 2
+          }
 
           commands.setTextSelection({
             from: targetPos,
@@ -247,13 +351,25 @@ export const FormulaInsertionExtension = Extension.create({
         ({ editor, commands }) => {
           const operatorSymbol = node.signature.operator
 
-          // Insert operator as an operator-formula-component node
-          commands.insertContent({
-            type: 'operator-formula-component',
-            attrs: {
-              operatorSymbol,
+          // Build content to insert
+          const contentToInsert = [
+            { type: 'text', text: '\u200B' },
+            {
+              type: 'operator-formula-component',
+              attrs: {
+                operatorSymbol,
+              },
             },
-          })
+          ]
+
+          // Add space after minus operator to distinguish from negative numbers
+          if (operatorSymbol === '-') {
+            contentToInsert.push({ type: 'text', text: ' ' })
+          }
+
+          contentToInsert.push({ type: 'text', text: '\u200B' })
+
+          commands.insertContent(contentToInsert)
 
           commands.focus()
 
