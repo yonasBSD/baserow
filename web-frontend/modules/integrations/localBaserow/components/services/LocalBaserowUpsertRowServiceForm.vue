@@ -5,25 +5,31 @@
       :application="application"
       :enable-view-picker="false"
       :default-values="defaultValues"
-      disallow-data-synced-tables
+      :disallow-data-synced-tables="disallowDataSyncedTables"
       @table-changed="handleTableChange"
       @values-changed="emitServiceChange($event)"
     ></LocalBaserowServiceForm>
     <div v-if="tableLoading" class="loading-spinner margin-bottom-1"></div>
     <p v-if="values.integration_id && !values.table_id">
-      {{ $t('upsertRowWorkflowActionForm.noTableSelectedMessage') }}
+      {{ $t('localBaserowUpsertRowServiceForm.noTableSelectedMessage') }}
     </p>
-    <FieldMappingForm
+    <FieldMappingsForm
       v-if="!tableLoading"
       v-model="values.field_mappings"
-      :fields="getWritableSchemaFields"
-    ></FieldMappingForm>
+      :fields="writableSchemaFields"
+    ></FieldMappingsForm>
+    <Alert
+      v-if="!tableLoading && service?.table_id && !writableSchemaFields.length"
+      type="warning"
+    >
+      <p>{{ $t('localBaserowUpsertRowServiceForm.noWritableFields') }}</p>
+    </Alert>
   </form>
 </template>
 
 <script>
 import _ from 'lodash'
-import FieldMappingForm from '@baserow/modules/integrations/localBaserow/components/services/FieldMappingForm'
+import FieldMappingsForm from '@baserow/modules/integrations/localBaserow/components/services/FieldMappingsForm'
 import form from '@baserow/modules/core/mixins/form'
 import LocalBaserowServiceForm from '@baserow/modules/integrations/localBaserow/components/services/LocalBaserowServiceForm'
 
@@ -31,7 +37,7 @@ export default {
   name: 'LocalBaserowUpsertRowServiceForm',
   components: {
     LocalBaserowServiceForm,
-    FieldMappingForm,
+    FieldMappingsForm,
   },
   mixins: [form],
   props: {
@@ -58,6 +64,17 @@ export default {
       required: false,
       default: false,
     },
+    /**
+     * Whether to disallow selecting data synced tables. It defaults to
+     * true as this is the default behaviour for the create row action
+     * form. The update row action form allows data synced tables, assuming
+     * they have writable fields.
+     */
+    disallowDataSyncedTables: {
+      type: Boolean,
+      required: false,
+      default: true,
+    },
   },
   data() {
     return {
@@ -75,7 +92,7 @@ export default {
      * Returns the writable fields in the schema, which the
      * `FieldMappingForm` can use to display the field mapping options.
      */
-    getWritableSchemaFields() {
+    writableSchemaFields() {
       if (
         this.service == null ||
         this.service.schema == null // have service, no table
