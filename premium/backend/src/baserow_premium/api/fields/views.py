@@ -129,7 +129,6 @@ class AsyncGenerateAIFieldValuesView(APIView):
             context=ai_field.table,
         )
 
-        GenerateAIValuesJobType().get_valid_generative_ai_model_type_or_raise(ai_field)
         job = JobHandler().create_and_start_job(
             request.user,
             GenerateAIValuesJobType.type,
