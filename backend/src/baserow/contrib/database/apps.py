@@ -829,12 +829,14 @@ class DatabaseConfig(AppConfig):
             CreateViewFilterOperationType,
             CreateViewGroupByOperationType,
             CreateViewOperationType,
+            CreateViewRowOperationType,
             CreateViewSortOperationType,
             DeleteViewDecorationOperationType,
             DeleteViewFilterGroupOperationType,
             DeleteViewFilterOperationType,
             DeleteViewGroupByOperationType,
             DeleteViewOperationType,
+            DeleteViewRowOperationType,
             DeleteViewSortOperationType,
             DuplicateViewOperationType,
             ListAggregationsViewOperationType,
@@ -851,6 +853,7 @@ class DatabaseConfig(AppConfig):
             ReadViewFilterOperationType,
             ReadViewGroupByOperationType,
             ReadViewOperationType,
+            ReadViewRowOperationType,
             ReadViewsOrderOperationType,
             ReadViewSortOperationType,
             RestoreViewOperationType,
@@ -860,6 +863,7 @@ class DatabaseConfig(AppConfig):
             UpdateViewGroupByOperationType,
             UpdateViewOperationType,
             UpdateViewPublicOperationType,
+            UpdateViewRowOperationType,
             UpdateViewSlugOperationType,
             UpdateViewSortOperationType,
         )
@@ -872,6 +876,10 @@ class DatabaseConfig(AppConfig):
             UpdateWebhookOperationType,
         )
 
+        operation_type_registry.register(ReadViewRowOperationType())
+        operation_type_registry.register(CreateViewRowOperationType())
+        operation_type_registry.register(UpdateViewRowOperationType())
+        operation_type_registry.register(DeleteViewRowOperationType())
         operation_type_registry.register(CreateTableDatabaseTableOperationType())
         operation_type_registry.register(ListTablesDatabaseTableOperationType())
         operation_type_registry.register(OrderTablesDatabaseTableOperationType())
@@ -1088,9 +1096,20 @@ class DatabaseConfig(AppConfig):
 
         operation_type_registry.register(SetFieldRuleOperationType())
         operation_type_registry.register(ReadFieldRuleOperationType())
+
         action_type_registry.register(CreateFieldRuleActionType())
         action_type_registry.register(UpdateFieldRuleActionType())
         action_type_registry.register(DeleteFieldRuleActionType())
+
+        from baserow.contrib.database.ws.public.rows.view_realtime_rows import (
+            PublicViewRealtimeRowsType,
+        )
+        from baserow.contrib.database.ws.views.rows.registries import (
+            view_realtime_rows_registry,
+        )
+
+        if not settings.DISABLE_ANONYMOUS_PUBLIC_VIEW_WS_CONNECTIONS:
+            view_realtime_rows_registry.register(PublicViewRealtimeRowsType())
 
         # The signals must always be imported last because they use the registries
         # which need to be filled first.

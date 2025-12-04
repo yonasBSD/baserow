@@ -48,6 +48,7 @@ from baserow.contrib.database.table.models import Table
 from baserow.contrib.database.views.registries import view_aggregation_type_registry
 from baserow.core.handler import CoreHandler
 from baserow.core.import_export.utils import file_chunk_generator
+from baserow.core.registries import ImportExportConfig
 from baserow.core.storage import ExportZipFile
 from baserow.core.user_files.handler import UserFileHandler
 from baserow.core.user_files.models import UserFile
@@ -108,6 +109,7 @@ class GridViewType(ViewType):
     def export_serialized(
         self,
         grid: View,
+        import_export_config: ImportExportConfig,
         cache: Optional[Dict] = None,
         files_zip: Optional[ExportZipFile] = None,
         storage: Optional[Storage] = None,
@@ -116,7 +118,9 @@ class GridViewType(ViewType):
         Adds the serialized grid view options to the exported dict.
         """
 
-        serialized = super().export_serialized(grid, cache, files_zip, storage)
+        serialized = super().export_serialized(
+            grid, import_export_config, cache, files_zip, storage
+        )
         serialized["row_identifier_type"] = grid.row_identifier_type
         serialized["row_height_size"] = grid.row_height_size
 
@@ -141,6 +145,7 @@ class GridViewType(ViewType):
         self,
         table: Table,
         serialized_values: Dict[str, Any],
+        import_export_config: ImportExportConfig,
         id_mapping: Dict[str, Any],
         files_zip: Optional[ZipFile] = None,
         storage: Optional[Storage] = None,
@@ -152,7 +157,7 @@ class GridViewType(ViewType):
         serialized_copy = serialized_values.copy()
         field_options = serialized_copy.pop("field_options")
         grid_view = super().import_serialized(
-            table, serialized_copy, id_mapping, files_zip, storage
+            table, serialized_copy, import_export_config, id_mapping, files_zip, storage
         )
         if grid_view is not None:
             if "database_grid_view_field_options" not in id_mapping:
@@ -321,14 +326,13 @@ class GridViewType(ViewType):
         view: GridView,
         field_ids_to_check: Optional[List[int]] = None,
     ) -> Set[int]:
-        if field_ids_to_check is None:
-            field_ids_to_check = view.table.field_set.values_list("id", flat=True)
-
         fields_with_options = view.gridviewfieldoptions_set.all()
         field_ids_with_options = {o.field_id for o in fields_with_options}
         hidden_field_ids = {o.field_id for o in fields_with_options if o.hidden}
         # Hide fields in shared views by default if they don't have field_options.
         if view.public:
+            if field_ids_to_check is None:
+                field_ids_to_check = [f.id for f in view.table.field_set.all()]
             additional_hidden_field_ids = {
                 f_id
                 for f_id in field_ids_to_check
@@ -417,6 +421,7 @@ class GalleryViewType(ViewType):
     def export_serialized(
         self,
         gallery: View,
+        import_export_config: ImportExportConfig,
         cache: Optional[Dict] = None,
         files_zip: Optional[ExportZipFile] = None,
         storage: Optional[Storage] = None,
@@ -425,7 +430,9 @@ class GalleryViewType(ViewType):
         Adds the serialized gallery view options to the exported dict.
         """
 
-        serialized = super().export_serialized(gallery, cache, files_zip, storage)
+        serialized = super().export_serialized(
+            gallery, import_export_config, cache, files_zip, storage
+        )
 
         if gallery.card_cover_image_field_id:
             serialized["card_cover_image_field_id"] = gallery.card_cover_image_field_id
@@ -448,6 +455,7 @@ class GalleryViewType(ViewType):
         self,
         table: Table,
         serialized_values: Dict[str, Any],
+        import_export_config: ImportExportConfig,
         id_mapping: Dict[str, Any],
         files_zip: Optional[ZipFile] = None,
         storage: Optional[Storage] = None,
@@ -466,7 +474,7 @@ class GalleryViewType(ViewType):
         field_options = serialized_copy.pop("field_options")
 
         gallery_view = super().import_serialized(
-            table, serialized_copy, id_mapping, files_zip, storage
+            table, serialized_copy, import_export_config, id_mapping, files_zip, storage
         )
 
         if gallery_view is not None:
@@ -1110,6 +1118,7 @@ class FormViewType(ViewType):
     def export_serialized(
         self,
         form: View,
+        import_export_config: ImportExportConfig,
         cache: Optional[Dict] = None,
         files_zip: Optional[ExportZipFile] = None,
         storage: Optional[Storage] = None,
@@ -1118,7 +1127,9 @@ class FormViewType(ViewType):
         Adds the serialized form view options to the exported dict.
         """
 
-        serialized = super().export_serialized(form, cache, files_zip, storage)
+        serialized = super().export_serialized(
+            form, import_export_config, cache, files_zip, storage
+        )
 
         def add_user_file(user_file):
             if not user_file:
@@ -1195,6 +1206,7 @@ class FormViewType(ViewType):
         self,
         table: Table,
         serialized_values: Dict[str, Any],
+        import_export_config: ImportExportConfig,
         id_mapping: Dict[str, Any],
         files_zip: Optional[ZipFile] = None,
         storage: Optional[Storage] = None,
@@ -1221,7 +1233,7 @@ class FormViewType(ViewType):
         serialized_copy["logo_image"] = get_file(serialized_copy.pop("logo_image"))
         field_options = serialized_copy.pop("field_options")
         form_view = super().import_serialized(
-            table, serialized_copy, id_mapping, files_zip, storage
+            table, serialized_copy, import_export_config, id_mapping, files_zip, storage
         )
 
         if form_view is not None:

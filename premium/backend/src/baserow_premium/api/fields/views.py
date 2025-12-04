@@ -79,9 +79,9 @@ class AsyncGenerateAIFieldValuesView(APIView):
             "dynamically constructed prompt configured in the field settings. "
             "\nThis is a **premium** feature."
         ),
-        request=None,
+        request=GenerateAIFieldValueViewSerializer,
         responses={
-            200: str,
+            202: GenerateAIValuesJobType().response_serializer_class,
             400: get_error_schema(
                 [
                     "ERROR_GENERATIVE_AI_DOES_NOT_EXIST",
@@ -129,7 +129,6 @@ class AsyncGenerateAIFieldValuesView(APIView):
             context=ai_field.table,
         )
 
-        GenerateAIValuesJobType().get_valid_generative_ai_model_type_or_raise(ai_field)
         job = JobHandler().create_and_start_job(
             request.user,
             GenerateAIValuesJobType.type,

@@ -28,7 +28,7 @@ Before installing Baserow with Helm, ensure you have:
 First, add the Baserow Helm chart repository:
 
 ```bash
-helm repo add baserow-chart https://baserow.gitlab.io/baserow-chart
+helm repo add baserow-chart https://baserow.github.io/baserow-chart
 helm repo update
 ```
 
@@ -133,7 +133,7 @@ You can specify a particular Baserow version by updating your `config.yaml`:
 ```yaml
 global:
   baserow:
-    image: 2.0.2
+    image: 2.0.3
 ```
 
 Or specify the chart version directly:
@@ -325,7 +325,7 @@ Add the Baserow Helm repository and install:
 
 ```bash
 # Add Baserow chart repository
-helm repo add baserow-chart https://baserow.gitlab.io/baserow-chart
+helm repo add baserow-chart https://baserow.github.io/baserow-chart
 helm repo update
 
 # Install Baserow

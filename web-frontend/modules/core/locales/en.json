@@ -150,6 +150,21 @@
     "errorInvalidOldPasswordTitle": "Invalid password",
     "errorInvalidOldPasswordMessage": "Could not change your password because your old password is invalid."
   },
+  "emailSettings": {
+    "title": "Change email address",
+    "successTitle": "Confirmation email sent",
+    "successDescription": "We've sent a confirmation email to your new address. Please check your inbox and click the link to complete the email change.",
+    "currentEmailLabel": "Current email address",
+    "newEmailLabel": "New email address",
+    "passwordLabel": "Current password",
+    "submitButton": "Send confirmation email",
+    "errorInvalidPasswordTitle": "Invalid password",
+    "errorInvalidPasswordMessage": "Could not request email change because your password is incorrect.",
+    "errorEmailExistsTitle": "Email already exists",
+    "errorEmailExistsMessage": "Could not request email change because an account with this email address already exists.",
+    "errorNotAllowedTitle": "Email change not allowed",
+    "errorNotAllowedMessage": "You cannot change your email address because your account uses single sign-on (SSO) authentication."
+  },
   "deleteAccountSettings": {
     "title": "Delete account",
     "description": "You can schedule the deletion of your account by entering your current password and clicking the button. Your account will be permanently deleted after {days} days. In the meantime, if you log in again, your account deletion will be cancelled.",
@@ -427,11 +442,11 @@
   },
   "connectingToast": {
     "title": "Reconnecting",
-    "content": "Reconnecting with server."
+    "content": "Trying to reestablish real-time updates."
   },
   "failedConnectingToast": {
     "title": "Failed",
-    "content": "Connection to the server has failed. Please refresh the page.",
+    "content": "Real-time updates could not be reestablished. Please refresh to continue.",
     "action": "Refresh page"
   },
   "authorizationErrorToast": {
@@ -545,6 +560,20 @@
     "errorLinkExpiredMessage": "The password reset link has expired. Please request another one.",
     "disabled": "Reset Password is disabled",
     "disabledMessage": "It's not possible to reset the password because it has been disabled."
+  },
+  "changeEmail": {
+    "title": "Confirm email change",
+    "submit": "Confirm email change",
+    "changed": "Email address changed",
+    "message": "Your email address has been successfully changed. You can now login to Baserow using your new email address.",
+    "errorInvalidLinkTitle": "Invalid link",
+    "errorInvalidLinkMessage": "Could not change the email address because the link is invalid.",
+    "errorLinkExpiredTitle": "Link expired",
+    "errorLinkExpiredMessage": "The email change link has expired. Please request a new one from your account settings.",
+    "errorEmailExistsTitle": "Email already exists",
+    "errorEmailExistsMessage": "Could not change the email address because an account with this email address already exists.",
+    "errorEmailAlreadyChangedTitle": "Email already changed",
+    "errorEmailAlreadyChangedMessage": "The email address has already been changed to the requested address."
   },
   "signup": {
     "headTitle": "Create account",
@@ -689,7 +718,7 @@
     "daysAgo": "0 days ago | 1 day ago | {n} days ago",
     "monthsAgo": "0 months ago | 1 month ago | {n} months ago",
     "yearsAgo": "0 years ago | 1 year ago | {n} years ago",
-    "lessThanMinuteAgo": "less than minute ago",
+    "lessThanMinuteAgo": "less than a minute ago",
     "justNow": "just now"
   },
   "crudTableSearch": {

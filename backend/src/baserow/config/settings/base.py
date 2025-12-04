@@ -11,7 +11,6 @@ from urllib.parse import urljoin, urlparse
 from django.core.exceptions import ImproperlyConfigured
 
 import dj_database_url
-import posthog
 import sentry_sdk
 from corsheaders.defaults import default_headers
 from sentry_sdk.integrations.django import DjangoIntegration
@@ -457,7 +456,7 @@ SPECTACULAR_SETTINGS = {
         "name": "MIT",
         "url": "https://github.com/baserow/baserow/blob/develop/LICENSE",
     },
-    "VERSION": "2.0.2",
+    "VERSION": "2.0.3",
     "SERVE_INCLUDE_SCHEMA": False,
     "TAGS": [
         {"name": "Settings"},
@@ -780,6 +779,7 @@ if PRIVATE_BACKEND_HOSTNAME:
 
 FROM_EMAIL = os.getenv("FROM_EMAIL", "no-reply@localhost")
 RESET_PASSWORD_TOKEN_MAX_AGE = 60 * 60 * 48  # 48 hours
+CHANGE_EMAIL_TOKEN_MAX_AGE = 60 * 60 * 12  # 12 hours
 
 ROW_PAGE_SIZE_LIMIT = int(os.getenv("BASEROW_ROW_PAGE_SIZE_LIMIT", 200))
 BATCH_ROWS_SIZE_LIMIT = int(
@@ -1243,13 +1243,8 @@ PG_FULLTEXT_SEARCH_UPDATE_DATA_THROTTLE_SECONDS = float(
 )
 
 POSTHOG_PROJECT_API_KEY = os.getenv("POSTHOG_PROJECT_API_KEY", "")
-POSTHOG_HOST = os.getenv("POSTHOG_HOST", "")
-POSTHOG_ENABLED = POSTHOG_PROJECT_API_KEY and POSTHOG_HOST
-if POSTHOG_ENABLED:
-    posthog.project_api_key = POSTHOG_PROJECT_API_KEY
-    posthog.host = POSTHOG_HOST
-else:
-    posthog.disabled = True
+POSTHOG_HOST = os.getenv("POSTHOG_HOST") or None
+POSTHOG_ENABLED = bool(POSTHOG_PROJECT_API_KEY)
 
 BASEROW_BUILDER_DOMAINS = os.getenv("BASEROW_BUILDER_DOMAINS", None)
 BASEROW_BUILDER_DOMAINS = (

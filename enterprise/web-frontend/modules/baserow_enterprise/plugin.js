@@ -88,6 +88,7 @@ import {
 } from '@baserow_enterprise/dateDependencyTypes'
 import { CustomCodeBuilderSettingType } from '@baserow_enterprise/builderSettingTypes'
 import { RealtimePushTwoWaySyncStrategyType } from '@baserow_enterprise/twoWaySyncStrategyTypes'
+import { RestrictedViewOwnershipType } from '@baserow_enterprise/viewOwnershipTypes'
 
 export default (context) => {
   const { app, isDev, store } = context
@@ -269,4 +270,11 @@ export default (context) => {
     'twoWaySyncStrategy',
     new RealtimePushTwoWaySyncStrategyType(context)
   )
+
+  if (app.$featureFlagIsEnabled('view_permissions')) {
+    app.$registry.register(
+      'viewOwnershipType',
+      new RestrictedViewOwnershipType(context)
+    )
+  }
 }
