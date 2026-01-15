@@ -1,4 +1,5 @@
 import asyncio
+import os
 import sys
 
 from django.conf import settings
@@ -75,3 +76,37 @@ class ConcurrencyLimiterASGI:
     async def __call__(self, scope, receive, send):
         async with self.semaphore:
             await self.app(scope, receive, send)
+
+
+def log_env_warnings():
+    from django.conf import settings
+
+    if settings.BASEROW_PUBLIC_URL:
+        if settings.BASEROW_PUBLIC_URL.startswith("http://localhost"):
+            logger.warning(
+                "WARNING: Baserow is configured to use a BASEROW_PUBLIC_URL of "
+                f"{settings.BASEROW_PUBLIC_URL}. If you attempt to access Baserow on "
+                "any other hostname requests to the backend will fail as they will be "
+                "from an unknown host. "
+                "Please set BASEROW_PUBLIC_URL if you will be accessing Baserow "
+                f"from any other URL then {settings.BASEROW_PUBLIC_URL}."
+            )
+    else:
+        if "PUBLIC_BACKEND_URL" not in os.environ:
+            logger.warning(
+                "WARNING: Baserow is configured to use a PUBLIC_BACKEND_URL of "
+                f"{settings.PUBLIC_BACKEND_URL}. If you attempt to access Baserow on any other "
+                "hostname requests to the backend will fail as they will be from an "
+                "unknown host."
+                "Please ensure you set PUBLIC_BACKEND_URL if you will be accessing "
+                f"Baserow from any other URL then {settings.PUBLIC_BACKEND_URL}."
+            )
+        if "PUBLIC_WEB_FRONTEND_URL" not in os.environ:
+            logger.warning(
+                "WARNING: Baserow is configured to use a default PUBLIC_WEB_FRONTEND_URL "
+                f"of {settings.PUBLIC_WEB_FRONTEND_URL}. Emails sent by Baserow will use links "
+                f"pointing to {settings.PUBLIC_WEB_FRONTEND_URL} when telling users how to "
+                "access your server. "
+                "If this is incorrect please ensure you have set PUBLIC_WEB_FRONTEND_URL to "
+                "the URL where users can access your Baserow server."
+            )
