@@ -7,7 +7,7 @@
 /* prettier-ignore */
 %icon {
   /* stylelint-disable-next-line scss/at-extend-no-missing-placeholder, scss/operator-no-unspaced */
-  @extend *[class^="iconoir-"];
+  @extend *, [class^=iconoir-];
 }
 
 /* prettier-ignore */
