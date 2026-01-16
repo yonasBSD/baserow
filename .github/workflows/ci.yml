@@ -200,22 +200,21 @@ jobs:
     name: Backend Lint
     runs-on: ubuntu-latest
     needs:
-      - build-backend
       - detect-changes
     if: needs.detect-changes.outputs.backend == 'true' || github.ref_name == 'develop' || github.ref_name == 'master'
-    permissions:
-      contents: read
-      packages: read
     steps:
-      - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v3
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/checkout@v4
 
-      - name: Run backend lint
-        run: docker run --rm ${{ needs.build-backend.outputs.image }} lint
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "0.5.6"
+
+      - name: Run ruff
+        working-directory: backend
+        run: |
+          uvx ruff check src/ ../premium/backend/src/ ../enterprise/backend/src/ tests/ ../premium/backend/tests/ ../enterprise/backend/tests/
+          uvx ruff format --check src/ ../premium/backend/src/ ../enterprise/backend/src/ tests/ ../premium/backend/tests/ ../enterprise/backend/tests/
 
   frontend-lint:
     name: Web-Frontend Lint
@@ -361,12 +360,22 @@ jobs:
             -e DATABASE_USER=baserow \
             -e DATABASE_PASSWORD=baserow \
             ${{ needs.build-backend.outputs.image }} ci-check-startup-oss-only
+      - name: Check backend migrations
+        run: |
+          docker run --rm --network="${{ job.services.db.network }}" \
+            -e DATABASE_HOST=db \
+            -e DATABASE_PORT=5432 \
+            -e DATABASE_NAME=baserow \
+            -e DATABASE_USER=baserow \
+            -e DATABASE_PASSWORD=baserow \
+            ${{ needs.build-backend.outputs.image }} ci-check-migrations
 
   test-backend:
     name: Backend Tests (Group ${{ matrix.group }})
     runs-on: ubuntu-latest
     needs:
       - build-backend
+      - backend-lint
       - detect-changes
     if: needs.detect-changes.outputs.backend == 'true' || github.ref_name == 'develop' || github.ref_name == 'master'
     permissions:
@@ -975,8 +984,8 @@ jobs:
           file: deploy/all-in-one/Dockerfile
           push: true
           build-args: |
-            FROM_BACKEND_IMAGE=${{ env.REGISTRY }}/${{ env.IMAGE_REPO }}/backend:ci-tested-${{ env.REAL_GITHUB_SHA }}
-            FROM_WEBFRONTEND_IMAGE=${{ env.REGISTRY }}/${{ env.IMAGE_REPO }}/web-frontend:ci-tested-${{ env.REAL_GITHUB_SHA }}
+            BACKEND_IMAGE=${{ env.REGISTRY }}/${{ env.IMAGE_REPO }}/backend:ci-tested-${{ env.REAL_GITHUB_SHA }}
+            WEBFRONTEND_IMAGE=${{ env.REGISTRY }}/${{ env.IMAGE_REPO }}/web-frontend:ci-tested-${{ env.REAL_GITHUB_SHA }}
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_REPO }}/baserow:ci-tested-${{ env.REAL_GITHUB_SHA }}
           cache-from: type=gha,scope=all-in-one
