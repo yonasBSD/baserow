@@ -39,7 +39,8 @@
         :fields="fields"
         :store-prefix="storePrefix"
         :decorations-by-place="decorationsByPlace"
-        v-on="$listeners"
+        @edit-row="$emit('edit-row', $event)"
+        @row-context="$emit('row-context', $event)"
       >
       </CalendarCard>
     </div>
@@ -49,7 +50,7 @@
       @click="expand"
     >
       {{
-        $tc('calendarMonthDay.hiddenRowsCount', hiddenRowsCount, {
+        $t('calendarMonthDay.hiddenRowsCount', {
           hiddenRowsCount,
         })
       }}
@@ -62,11 +63,10 @@
       :parent-width="width"
       :parent-height="height"
       :decorations-by-place="decorationsByPlace"
-      v-on="$listeners"
       @edit-row="
-        $refs.calendarMonthDayExpanded.hide()
-        $emit('edit-row', $event)
+        ($refs.calendarMonthDayExpanded.hide(), $emit('edit-row', $event))
       "
+      @row-context="$emit('row-context', $event)"
     >
     </CalendarMonthDayExpanded>
   </li>
@@ -85,6 +85,8 @@ export default {
     CalendarMonthDayExpanded,
   },
   mixins: [viewDecoration],
+  inheritAttrs: false,
+  emits: ['edit-row', 'row-context', 'create-row'],
   props: {
     day: {
       type: Object,
@@ -151,7 +153,7 @@ export default {
     this.updateVisibleRowsCount()
     window.addEventListener('resize', this.updateVisibleRowsCount)
   },
-  beforeDestroy() {
+  beforeUnmount() {
     window.removeEventListener('resize', this.updateVisibleRowsCount)
   },
   methods: {

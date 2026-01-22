@@ -51,7 +51,7 @@ export class PublishPageActionType extends PageActionType {
   }
 
   get label() {
-    return this.app.i18n.t('pageActionTypes.publish')
+    return this.app.$i18n.t('pageActionTypes.publish')
   }
 
   get icon() {
@@ -67,6 +67,7 @@ export class PublishPageActionType extends PageActionType {
   }
 
   isActive({ workspace, page }) {
+    if (!page || !workspace) return false // TODO MIG remove this
     return this.app.$hasPermission('builder.domain.publish', page, workspace.id)
   }
 
@@ -85,7 +86,7 @@ export class PreviewPageActionType extends PageActionType {
   }
 
   get label() {
-    return this.app.i18n.t('pageActionTypes.preview')
+    return this.app.$i18n.t('pageActionTypes.preview')
   }
 
   generatePreviewUrl(builderId, page) {
@@ -96,6 +97,8 @@ export class PreviewPageActionType extends PageActionType {
      * @param builderId   The builder application ID.
      * @param page        The Page object.
      */
+
+    if (!page || !page.path) return '' // TODO MIG remove this
 
     const toPath = compile(page.path, { encode: encodeURIComponent })
     const pageParams = Object.fromEntries(
@@ -117,6 +120,7 @@ export class PreviewPageActionType extends PageActionType {
   }
 
   isActive({ workspace, page }) {
+    if (!page || !workspace) return false // TODO MIG remove this
     return this.app.$hasPermission('builder.domain.publish', page, workspace.id)
   }
 

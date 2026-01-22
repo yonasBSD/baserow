@@ -1,5 +1,5 @@
 import jwtDecode from 'jwt-decode'
-import Vue from 'vue'
+
 import _ from 'lodash'
 
 import AuthService from '@baserow/modules/core/services/auth'
@@ -11,7 +11,7 @@ import {
   unsetUserSessionCookie,
 } from '@baserow/modules/core/utils/auth'
 import { unsetWorkspaceCookie } from '@baserow/modules/core/utils/workspace'
-import { v4 as uuidv4 } from 'uuid'
+import { uuid } from '@baserow/modules/core/utils/string'
 
 export const state = () => ({
   refreshing: false,
@@ -29,14 +29,13 @@ export const state = () => ({
   // Indicates whether a token should be set persistently as a cookie using the
   // `setToken` function.
   preventSetToken: false,
-  untrustedClientSessionId: uuidv4(),
+  untrustedClientSessionId: uuid(),
   userSessionExpired: false,
   workspaceInvitations: [],
   umreadUserNotificationCount: 0,
 })
 
 export const mutations = {
-  /* eslint-disable camelcase */
   SET_USER_DATA(
     state,
     {
@@ -59,7 +58,7 @@ export const mutations = {
     }
     // Global permissions annotated on the User.
     state.permissions = permissions
-    /* eslint-enable camelcase */
+
     state.user = user
     // Additional entries in the response payload could have been added via the
     // backend user data registry. We want to store them in the `additional` state so
@@ -75,7 +74,7 @@ export const mutations = {
     // Deep merge using lodash customized to use Vue.set to maintain reactivity. Arrays
     // and other non pure object types will be overridden, objects will be merged.
     function customizer(objValue, srcValue, key, object) {
-      Vue.set(object, key, srcValue)
+      object[key] = srcValue
     }
     _.mergeWith(state.additional, data, customizer)
   },
@@ -141,7 +140,10 @@ export const actions = {
    * Authenticate a user by his email and password.
    */
   async login({ getters, dispatch }, { email, password }) {
-    const { data } = await AuthService(this.$client).login(email, password)
+    const { data } = await AuthService(useNuxtApp().$client).login(
+      email,
+      password
+    )
     return dispatch('loginWithData', { data })
   },
   /**
@@ -149,12 +151,12 @@ export const actions = {
    * If successful, commit the token to the state and start the refresh
    * timeout to stay authenticated.
    */
-  loginWithData({ getters, dispatch }, { data }) {
+  async loginWithData({ getters, dispatch }, { data }) {
     if (data.user) {
       dispatch('setUserData', data)
       if (!getters.getPreventSetToken) {
-        setToken(this.app, getters.refreshToken)
-        setUserSessionCookie(this.app, getters.signedUserSession)
+        await setToken(this.app, getters.refreshToken)
+        await setUserSessionCookie(this.app, getters.signedUserSession)
       }
       return data.user
     } else if (data.two_factor_auth) {
@@ -179,7 +181,7 @@ export const actions = {
       templateId = null,
     }
   ) {
-    const { data } = await AuthService(this.$client).register(
+    const { data } = await AuthService(useNuxtApp().$client).register(
       email,
       name,
       password,
@@ -190,8 +192,8 @@ export const actions = {
     )
 
     if (data.refresh_token) {
-      setToken(this.app, data.refresh_token)
-      setUserSessionCookie(this.app, data.user_session)
+      await setToken(this.app, data.refresh_token)
+      await setUserSessionCookie(this.app, data.user_session)
       dispatch('setUserData', data)
     }
   },
@@ -207,14 +209,14 @@ export const actions = {
     if (invalidateToken) {
       // Invalidate the token async because we don't have to wait for that.
       setTimeout(() => {
-        AuthService(this.$client).blacklistToken(refreshToken)
+        AuthService(useNuxtApp().$client).blacklistToken(refreshToken)
       })
     }
   },
-  forceLogoff({ commit }) {
-    unsetToken(this.app)
-    unsetUserSessionCookie(this.app)
-    unsetWorkspaceCookie(this.app)
+  async forceLogoff({ commit }) {
+    await unsetToken(this.app)
+    await unsetUserSessionCookie(this.app)
+    await unsetWorkspaceCookie(this.app)
     commit('LOGOFF')
   },
   /**
@@ -249,13 +251,13 @@ export const actions = {
         ...data,
       })
       if (!getters.getPreventSetToken && data.refresh_token) {
-        setToken(this.app, getters.refreshToken)
+        await setToken(this.app, getters.refreshToken)
       }
     } catch (error) {
       if (error.response?.status === 401) {
-        unsetToken(this.app)
-        unsetUserSessionCookie(this.app)
-        unsetWorkspaceCookie(this.app)
+        await unsetToken(this.app)
+        await unsetUserSessionCookie(this.app)
+        await unsetWorkspaceCookie(this.app)
         if (getters.isAuthenticated) {
           dispatch('setUserSessionExpired', true)
         }
@@ -275,7 +277,7 @@ export const actions = {
    * Updates the account information is the authenticated user.
    */
   async update({ getters, commit, dispatch }, values) {
-    const { data } = await AuthService(this.$client).update(values)
+    const { data } = await AuthService(useNuxtApp().$client).update(values)
     dispatch('forceUpdateUserData', { user: data })
     dispatch(
       'workspace/forceUpdateWorkspaceUserAttributes',
@@ -312,14 +314,14 @@ export const actions = {
   preventSetToken({ commit }) {
     commit('SET_PREVENT_SET_TOKEN', true)
   },
-  setUserSessionExpired({ commit }, value) {
-    unsetToken(this.app)
-    unsetUserSessionCookie(this.app)
-    unsetWorkspaceCookie(this.app)
+  async setUserSessionExpired({ commit }, value) {
+    await unsetToken(this.app)
+    await unsetUserSessionCookie(this.app)
+    await unsetWorkspaceCookie(this.app)
     commit('SET_USER_SESSION_EXPIRED', value)
   },
   async fetchWorkspaceInvitations({ commit }) {
-    const { data } = await AuthService(this.$client).dashboard()
+    const { data } = await AuthService(useNuxtApp().$client).dashboard()
     commit('SET_WORKSPACE_INVIATIONS', data.workspace_invitations)
     return data.workspace_invitations
   },
@@ -328,7 +330,7 @@ export const actions = {
   },
   async acceptWorkspaceInvitation({ commit }, invitationId) {
     const { data: workspace } = await WorkspaceService(
-      this.$client
+      useNuxtApp().$client
     ).acceptInvitation(invitationId)
     commit('REMOVE_WORKSPACE_INVITATION', invitationId)
     return workspace
@@ -337,7 +339,7 @@ export const actions = {
     commit('REMOVE_WORKSPACE_INVITATION', invitation.id)
   },
   async rejectWorkspaceInvitation({ commit }, invitationId) {
-    await WorkspaceService(this.$client).rejectInvitation(invitationId)
+    await WorkspaceService(useNuxtApp().$client).rejectInvitation(invitationId)
     commit('REMOVE_WORKSPACE_INVITATION', invitationId)
   },
   forceRejectWorkspaceInvitation({ commit }, invitation) {

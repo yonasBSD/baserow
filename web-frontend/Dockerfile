@@ -73,6 +73,10 @@ COPY --chown=$UID:$GID ./enterprise/web-frontend /baserow/enterprise/web-fronten
 # Copy all dependencies so we can build the production files
 COPY --chown=$UID:$GID --from=builder-ci /baserow/web-frontend/node_modules /baserow/web-frontend/node_modules
 
+# Create symlinks because premium and enterprise are node packages
+RUN ln -s /baserow/web-frontend/node_modules/ /baserow/premium/web-frontend/node_modules \
+    && ln -s /baserow/web-frontend/node_modules/ /baserow/enterprise/web-frontend/node_modules
+
 COPY --from=tool-builder /usr/bin/dos2unix /usr/local/bin/dos2unix
 RUN dos2unix /baserow/web-frontend/docker/docker-entrypoint.sh \
     && chmod a+x /baserow/web-frontend/docker/docker-entrypoint.sh \
@@ -84,7 +88,8 @@ WORKDIR /baserow/web-frontend
 # Build, then clean reinstall production only
 RUN --mount=type=cache,target=$YARN_CACHE_FOLDER,uid=$UID,gid=$GID,sharing=locked \
     yarn run build-local \
-    && find .nuxt -type f -name "*.map" -delete
+    && ls .output \
+    && find .output -type f -name "*.map" -delete
 
 
 # =============================================================================
@@ -121,6 +126,11 @@ COPY --chown=$UID:$GID enterprise/web-frontend /baserow/enterprise/web-frontend/
 
 COPY --chown=$UID:$GID --from=builder-ci /baserow/web-frontend/node_modules /baserow/web-frontend/node_modules
 COPY --chown=$UID:$GID --from=builder-prod /baserow/web-frontend/.nuxt /baserow/web-frontend/.nuxt
+COPY --chown=$UID:$GID --from=builder-prod /baserow/web-frontend/.output /baserow/web-frontend/.output
+
+# Create symlinks because premium and enterprise are node packages
+RUN ln -s /baserow/web-frontend/node_modules/ /baserow/premium/web-frontend/node_modules \
+    && ln -s /baserow/web-frontend/node_modules/ /baserow/enterprise/web-frontend/node_modules
 
 COPY --chown=$UID:$GID tests /baserow/tests
 COPY --chown=$UID:$GID deploy/plugins/*.sh /baserow/plugins/
@@ -202,8 +212,12 @@ RUN dos2unix /baserow/web-frontend/docker/docker-entrypoint.sh \
 COPY --chown=$UID:$GID web-frontend/package.json /baserow/web-frontend/package.json
 COPY --chown=$UID:$GID web-frontend/yarn.lock /baserow/web-frontend/yarn.lock
 
+# Create symlinks because premium and enterprise are node packages
+RUN ln -s /baserow/web-frontend/node_modules/ /baserow/premium/web-frontend/node_modules \
+    && ln -s /baserow/web-frontend/node_modules/ /baserow/enterprise/web-frontend/node_modules
+
 # Make sure these directories exist and are owned by the non-root user
-RUN mkdir -p /baserow/web-frontend/.nuxt /baserow/web-frontend/.cache /baserow/web-frontend/.nuxt-storybook
+RUN mkdir -p /baserow/web-frontend/.nuxt /baserow/web-frontend/.cache /baserow/web-frontend/.nuxt-storybook /baserow/web-frontend/.output
 
 # Install dependencies (including dev)
 RUN --mount=type=cache,target=$YARN_CACHE_FOLDER,uid=$UID,gid=$GID,sharing=locked \
@@ -248,17 +262,17 @@ RUN --mount=type=cache,target=$YARN_CACHE_FOLDER,uid=$UID,gid=$GID,sharing=locke
     # Clean up unnecessary files to reduce image size
     && find node_modules -type f -name "*.map" -delete \
     && find node_modules -type f \( \
-        -name "*.md" -o -name "*.markdown" \
-        -o -name "*.ts" -o -name "*.d.ts" \
-        -o -name "LICENSE*" -o -name "license*" -o -name "License*" \
-        -o -name "CHANGELOG*" -o -name "HISTORY*" \
-        -o -name ".npmignore" -o -name ".gitignore" -o -name ".eslintrc*" \
+    -name "*.md" -o -name "*.markdown" \
+    -o -name "*.ts" -o -name "*.d.ts" \
+    -o -name "LICENSE*" -o -name "license*" -o -name "License*" \
+    -o -name "CHANGELOG*" -o -name "HISTORY*" \
+    -o -name ".npmignore" -o -name ".gitignore" -o -name ".eslintrc*" \
     \) -delete \
     && find node_modules -type d \( \
-        -name "test" -o -name "tests" -o -name "__tests__" \
-        -o -name "example" -o -name "examples" \
-        -o -name "doc" -o -name "docs" \
-        -o -name ".github" \
+    -name "test" -o -name "tests" -o -name "__tests__" \
+    -o -name "example" -o -name "examples" \
+    -o -name "doc" -o -name "docs" \
+    -o -name ".github" \
     \) -prune -exec rm -rf {} +
 
 COPY --chown=$UID:$GID web-frontend /baserow/web-frontend
@@ -266,12 +280,17 @@ COPY --chown=$UID:$GID premium/web-frontend /baserow/premium/web-frontend
 COPY --chown=$UID:$GID enterprise/web-frontend /baserow/enterprise/web-frontend/
 COPY --chown=$UID:$GID ./deploy/plugins/*.sh /baserow/plugins/
 
+# Create symlinks because premium and enterprise are node packages
+RUN ln -s /baserow/web-frontend/node_modules/ /baserow/premium/web-frontend/node_modules \
+    && ln -s /baserow/web-frontend/node_modules/ /baserow/enterprise/web-frontend/node_modules
+
 HEALTHCHECK --interval=60s CMD wget -q -O /dev/null http://localhost:3000/_health/ || exit 1
 ENTRYPOINT ["/usr/bin/tini", "--", "/bin/bash", "/baserow/web-frontend/docker/docker-entrypoint.sh"]
 
 FROM local-base AS local
 
 COPY --chown=$UID:$GID --from=builder-prod /baserow/web-frontend/.nuxt /baserow/web-frontend/.nuxt
+COPY --chown=$UID:$GID --from=builder-prod /baserow/web-frontend/.output /baserow/web-frontend/.output
 
 CMD ["nuxt-local"]
 

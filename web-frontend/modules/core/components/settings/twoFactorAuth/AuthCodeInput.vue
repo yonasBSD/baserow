@@ -88,6 +88,7 @@ export default {
       default: false,
     },
   },
+  emits: ['all-filled'],
   data() {
     return {
       values: {

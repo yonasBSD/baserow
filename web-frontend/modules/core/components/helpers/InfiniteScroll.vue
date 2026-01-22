@@ -4,7 +4,7 @@
     :class="{ 'infinite-scroll--reversed': reverse }"
     class="infinite-scroll"
     @scroll="handleScroll"
-    v-on="$listeners"
+    v-on="$attrs"
   >
     <slot />
     <div
@@ -76,6 +76,7 @@ export default {
       default: true,
     },
   },
+  emits: ['load-next-page'],
   data() {
     return {
       // We don't want to show the end-line unless the user has scrolled somewhere and

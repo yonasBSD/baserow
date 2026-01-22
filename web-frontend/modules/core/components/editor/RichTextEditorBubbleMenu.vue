@@ -129,7 +129,7 @@
 </template>
 
 <script>
-import { FloatingMenu } from '@tiptap/vue-2'
+import { FloatingMenu } from '@tiptap/extension-floating-menu'
 import { isElement } from '@baserow/modules/core/utils/dom'
 
 export default {
@@ -152,6 +152,7 @@ export default {
     return {
       editLink: false,
       editLinkValue: '',
+      unsetLinkMarkHandler: null,
     }
   },
   watch: {
@@ -163,18 +164,20 @@ export default {
   },
   mounted() {
     // if the space key or escape is pressed, we should unselect the link.
-    const unsetLinkMark = (event) => {
+    this.unsetLinkMarkHandler = (event) => {
       if (
-        this.editor.isActive('link') &&
+        this.editor?.isActive('link') &&
         (event.key === ' ' || event.key === 'Escape')
       ) {
         this.unselectLink()
       }
     }
-    this.$el.addEventListener('keyup', unsetLinkMark)
-    this.$once('hook:beforeDestroy', () => {
-      this.$el.removeEventListener('keyup', unsetLinkMark)
-    })
+    this.$el.addEventListener('keyup', this.unsetLinkMarkHandler)
+  },
+  beforeUnmount() {
+    if (this.unsetLinkMarkHandler) {
+      this.$el.removeEventListener('keyup', this.unsetLinkMarkHandler)
+    }
   },
   methods: {
     appendTo() {

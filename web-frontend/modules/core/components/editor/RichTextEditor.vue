@@ -1,5 +1,6 @@
 <template>
   <div
+    ref="root"
     class="rich-text-editor"
     :class="{ 'rich-text-editor--scrollbar-thin': thinScrollbar }"
     @drop.prevent="dropImage($event)"
@@ -35,7 +36,7 @@
 <script>
 import _ from 'lodash'
 import { mapGetters } from 'vuex'
-import { Editor, EditorContent } from '@tiptap/vue-2'
+import { Editor, EditorContent } from '@tiptap/vue-3'
 import { Placeholder } from '@tiptap/extension-placeholder'
 import { Mention } from '@baserow/modules/core/editor/mention'
 import { Document } from '@tiptap/extension-document'
@@ -73,6 +74,7 @@ import { isElement } from '@baserow/modules/core/utils/dom'
 import { isOsSpecificModifierPressed } from '@baserow/modules/core/utils/events'
 import { uuid } from '@baserow/modules/core/utils/string'
 import { notifyIf } from '@baserow/modules/core/utils/error'
+import { clone } from '@baserow/modules/core/utils/object'
 import suggestion from '@baserow/modules/core/editor/suggestion'
 
 const richTextEditorExtensions = ({
@@ -128,7 +130,7 @@ export default {
     RichTextEditorFloatingMenu,
   },
   props: {
-    value: {
+    modelValue: {
       type: [Object, String],
       required: true,
     },
@@ -169,6 +171,7 @@ export default {
       default: false,
     },
   },
+  emits: ['blur', 'focus', 'update:modelValue', 'stop-edit'],
   data() {
     return {
       editor: null,
@@ -176,6 +179,8 @@ export default {
       bubbleMenuVisible: false,
       floatingMenuVisible: false,
       loadings: [],
+      mousedownEvent: null,
+      scrollEvent: null,
     }
   },
   computed: {
@@ -186,7 +191,7 @@ export default {
       if (this.scrollableAreaElement !== null) {
         return this.scrollableAreaElement.getBoundingClientRect()
       }
-      return () => this.$el.getBoundingClientRect()
+      return () => this.$refs.root.getBoundingClientRect()
     },
     canUploadImages() {
       const enableImages = false
@@ -200,7 +205,7 @@ export default {
         this.createEditor()
       },
     },
-    value(value) {
+    modelValue(value) {
       if (!_.isEqual(value, this.editor.getJSON())) {
         this.editor.commands.setContent(value, false)
       }
@@ -208,6 +213,15 @@ export default {
   },
   mounted() {
     this.createEditor()
+  },
+  beforeUnmount() {
+    if (this.mousedownEvent !== null) {
+      this.$refs.root.removeEventListener('mousedown', this.mousedownEvent)
+    }
+    if (this.scrollEvent !== null) {
+      const elem = this.getScrollElement()
+      elem.removeEventListener('scroll', this.scrollEvent)
+    }
   },
   unmount() {
     if (this.editor) {
@@ -221,7 +235,7 @@ export default {
         this.$refs.floatingMenu?.updateReferenceClientRect()
         this.bubbleMenuVisible = false
       })
-      resizeObserver.observe(this.$el)
+      resizeObserver.observe(this.$refs.root)
       this.resizeObserver = resizeObserver
     },
     unregisterResizeObserver() {
@@ -275,7 +289,7 @@ export default {
     createEditor() {
       const extensions = this.getConfiguredExtensions()
       this.editor = new Editor({
-        content: this.value,
+        content: this.modelValue,
         editable: this.editable,
         editorProps: {
           handleClickOn: (view, pos, node, nodePos, event, direct) => {
@@ -301,7 +315,7 @@ export default {
         },
         extensions,
         onUpdate: () => {
-          this.$emit('input', this.editor.getJSON())
+          this.$emit('update:modelValue', clone(this.editor.getJSON()))
         },
         onFocus: ({ editor, event }) => {
           if (this.editable && !this.bubbleMenuVisible) {
@@ -353,30 +367,21 @@ export default {
       }
     },
     registerAutoCollapseFloatingMenuHandler() {
-      const $refs = this.$refs
-
-      const handler = () => {
-        $refs.floatingMenu?.collapse()
+      this.mousedownEvent = () => {
+        this.$refs.floatingMenu?.collapse()
       }
-
-      this.$el.addEventListener('mousedown', handler)
-      this.$once('hook:unmounted', () => {
-        this.$el.removeEventListener('mousedown', handler)
-      })
+      this.$refs.root.addEventListener('mousedown', this.mousedownEvent)
+    },
+    getScrollElement() {
+      return this.scrollableAreaElement ?? this.$refs.root
     },
     registerAutoHideBubbleMenuHandler() {
-      const _this = this
-
-      const handler = (event) => {
-        _this.bubbleMenuVisible = false
+      this.scrollEvent = () => {
+        this.bubbleMenuVisible = false
       }
 
-      const elem = this.scrollableAreaElement ?? this.$el
-
-      elem.addEventListener('scroll', handler)
-      this.$once('hook:unmounted', () => {
-        elem.removeEventListener('scroll', handler)
-      })
+      const elem = this.getScrollElement()
+      elem.addEventListener('scroll', this.scrollEvent)
     },
     renderHTMLMention() {
       const loggedUserId = this.loggedUserId
@@ -411,7 +416,9 @@ export default {
       )
     },
     isEventTargetInside(event) {
-      return isElement(this.$el, event.target) || this.isEventFromMenu(event)
+      return (
+        isElement(this.$refs.root, event.target) || this.isEventFromMenu(event)
+      )
     },
     addImages(imageFiles) {
       for (const image of imageFiles) {

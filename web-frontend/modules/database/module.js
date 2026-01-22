@@ -1,4 +1,4 @@
-import path from 'path'
+/*import path from 'path'
 
 import { routes } from './routes'
 import en from './locales/en.json'
@@ -29,4 +29,65 @@ export default function DatabaseModule(options) {
     additionalMessages.push({ en, fr, nl, de, es, it, pl, ko })
     alreadyExtended = true
   })
-}
+}*/
+
+import {
+  defineNuxtModule,
+  addPlugin,
+  createResolver,
+  addRouteMiddleware,
+  extendPages,
+} from 'nuxt/kit'
+import { routes } from './routes'
+
+const locales = [
+  { code: 'en', name: 'English', file: 'en.json' },
+  { code: 'fr', name: 'Français', file: 'fr.json' },
+  { code: 'nl', name: 'Nederlands', file: 'nl.json' },
+  { code: 'de', name: 'Deutsch', file: 'de.json' },
+  { code: 'es', name: 'Español', file: 'es.json' },
+  { code: 'it', name: 'Italiano', file: 'it.json' },
+  { code: 'pl', name: 'Polski (Beta)', file: 'pl.json' },
+]
+
+export default defineNuxtModule({
+  meta: {
+    name: 'database',
+  },
+
+  setup(options, nuxt) {
+    const { resolve } = createResolver(import.meta.url)
+
+    // Register main plugin
+    addPlugin({
+      src: resolve('./plugin.js'),
+    })
+    addPlugin({
+      src: resolve('./plugin/store.js'),
+    })
+    addPlugin({
+      src: resolve('./plugin/realtime.js'),
+    })
+
+    addRouteMiddleware({
+      name: 'tableLoading',
+      path: resolve('./middleware/tableLoading'),
+    })
+
+    addRouteMiddleware({
+      name: 'selectWorkspaceDatabaseTable',
+      path: resolve('./middleware/selectWorkspaceDatabaseTable'),
+    })
+
+    extendPages((pages) => {
+      pages.push(...routes)
+    })
+
+    nuxt.hook('i18n:registerModule', (register) => {
+      register({
+        langDir: resolve('./locales'),
+        locales,
+      })
+    })
+  },
+})

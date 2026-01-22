@@ -134,7 +134,7 @@
 
 <script>
 import { posToDOMRect } from '@tiptap/core'
-import { FloatingMenu } from '@tiptap/vue-2'
+import { FloatingMenu } from '@tiptap/extension-floating-menu'
 import { isElement } from '@baserow/modules/core/utils/dom'
 
 export default {
@@ -155,6 +155,7 @@ export default {
       default: true,
     },
   },
+  emits: ['hidden', 'show'],
   data() {
     return {
       open: true,
