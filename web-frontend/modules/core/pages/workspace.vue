@@ -229,7 +229,12 @@ import DashboardVerifyEmail from '@baserow/modules/core/components/dashboard/Das
 import TemplateModal from '@baserow/modules/core/components/template/TemplateModal'
 import DashboardHelp from '@baserow/modules/core/components/dashboard/DashboardHelp'
 
-definePageMeta({ layout: 'app' })
+definePageMeta({
+  layout: 'app',
+  // Note: these middlewares must be explicitly listed because child pages
+  // don't automatically inherit parent middleware in Nuxt 3's page meta
+  middleware: ['authenticated', 'workspacesAndApplications', 'impersonate'],
+})
 
 defineOptions({
   mixins: [editWorkspace],

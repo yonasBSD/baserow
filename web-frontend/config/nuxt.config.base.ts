@@ -2,6 +2,7 @@ import path from 'node:path'
 import { defineNuxtConfig } from 'nuxt/config'
 import svgLoader from 'vite-svg-loader'
 import { nodePolyfills } from 'vite-plugin-node-polyfills'
+import { locales } from './locales.js'
 
 function baserowModuleConfig(
   premiumBase = '../premium/web-frontend',
@@ -49,16 +50,6 @@ function baserowModuleConfig(
 
 const baserow = baserowModuleConfig()
 
-const locales = [
-  { code: 'en', name: 'English', file: 'en.json' },
-  { code: 'fr', name: 'Français', file: 'fr.json' },
-  { code: 'nl', name: 'Nederlands', file: 'nl.json' },
-  { code: 'de', name: 'Deutsch', file: 'de.json' },
-  { code: 'es', name: 'Español', file: 'es.json' },
-  { code: 'it', name: 'Italiano', file: 'it.json' },
-  { code: 'pl', name: 'Polski (Beta)', file: 'pl.json' },
-]
-
 export default defineNuxtConfig({
   compatibilityDate: '2025-07-15',
   alias: {
@@ -99,6 +90,13 @@ export default defineNuxtConfig({
     ],
     ssr: {
       noExternal: ['vue-chartjs', 'chart.js'],
+    },
+    server: {
+      sourcemapIgnoreList: (sourcePath) => sourcePath.includes('node_modules'),
+    },
+    optimizeDeps: {
+      // Pre-bundle moment-guess to avoid missing source map warning
+      include: ['moment-guess'],
     },
   },
   buildDir: process.env.NUXT_BUILD_DIR || '.nuxt',

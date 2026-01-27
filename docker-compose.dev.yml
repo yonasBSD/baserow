@@ -20,6 +20,9 @@ services:
   caddy:
     volumes:
       - $PWD/Caddyfile.dev:/etc/caddy/Caddyfile
+      # For local development, mount the local backend/media folder so Caddy can
+      # serve files uploaded by the native backend process.
+      - $PWD/backend/media:/baserow/media
 
   backend:
     image: baserow_backend:dev
@@ -192,6 +195,7 @@ services:
     logging:
       driver: "none" # disable saving logs
     ports:
+      - "${HOST_PUBLISH_IP:-127.0.0.1}:1025:1025" # smtp
       - "8025:8025" # web ui
     networks:
       local:

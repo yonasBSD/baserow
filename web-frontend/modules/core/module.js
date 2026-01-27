@@ -25,27 +25,9 @@ import { createRequire } from 'node:module'
 import head from './head'
 // import { routes as customRoutes } from './routes'
 
-/*import en from './locales/en.json'
-import fr from './locales/fr.json'
-import nl from './locales/nl.json'
-import de from './locales/de.json'
-import es from './locales/es.json'
-import it from './locales/it.json'
-import pl from './locales/pl.json'
-import ko from './locales/ko.json'*/
+import { locales } from '../../config/locales.js'
 
 const require = createRequire(import.meta.url)
-
-// TODO MIG share that for all modules
-const locales = [
-  { code: 'en', name: 'English', file: 'en.json' },
-  { code: 'fr', name: 'Français', file: 'fr.json' },
-  { code: 'nl', name: 'Nederlands', file: 'nl.json' },
-  { code: 'de', name: 'Deutsch', file: 'de.json' },
-  { code: 'es', name: 'Español', file: 'es.json' },
-  { code: 'it', name: 'Italiano', file: 'it.json' },
-  { code: 'pl', name: 'Polski (Beta)', file: 'pl.json' },
-]
 
 const langDir = '../../locales'
 export default defineNuxtModule({
