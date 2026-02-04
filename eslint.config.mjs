@@ -1,22 +1,30 @@
-// Please keep in sync with the premium/enterprise eslintrc.js
-import withNuxt from './.nuxt/eslint.config.mjs'
+// @ts-check
+import withNuxt from './web-frontend/.nuxt/eslint.config.mjs'
+import globals from './web-frontend/node_modules/globals/index.js'
+import vitest from './web-frontend/node_modules/eslint-plugin-vitest/dist/index.mjs'
+import eslintConfigPrettier from './web-frontend/node_modules/eslint-config-prettier/index.js'
 
-import globals from 'globals'
-import vitest from 'eslint-plugin-vitest'
-import eslintConfigPrettier from 'eslint-config-prettier'
-
-export default [
+export default withNuxt([
   {
     ignores: [
-      '.nuxt/**',
       '**/node_modules/**',
-      'coverage/**',
+      '**/.nuxt/**',
+      '**/coverage/**',
       '**/generated/**',
-      '.nuxt-storybook/**',
+      '**/.nuxt-storybook/**',
+      '**/dist/**',
+      '**/.output/**',
+      '**/.storybook/**',
+      '**/vitest.setup.ts',
     ],
   },
   eslintConfigPrettier, // deactivate eslint rules that conflict with prettier
   {
+    files: [
+      'web-frontend/**/*.{js,ts,mjs,mts,jsx,tsx,vue}',
+      'premium/web-frontend/**/*.{js,ts,mjs,mts,jsx,tsx,vue}',
+      'enterprise/web-frontend/**/*.{js,ts,mjs,mts,jsx,tsx,vue}',
+    ],
     languageOptions: {
       globals: {
         ...globals.browser,
@@ -40,7 +48,17 @@ export default [
       'no-empty': 'off',
     },
   },
-
+  // Premium and Enterprise-specific overrides
+  {
+    files: [
+      'premium/web-frontend/**/*.{js,ts,mjs,mts,jsx,tsx,vue}',
+      'enterprise/web-frontend/**/*.{js,ts,mjs,mts,jsx,tsx,vue}',
+    ],
+    rules: {
+      'vue/order-in-components': 'off',
+    },
+  },
+  // Test files configuration
   {
     files: [
       '**/*.{test,spec}.{js,ts,jsx,tsx}',
@@ -56,4 +74,4 @@ export default [
       ...vitest.configs.recommended.rules,
     },
   },
-]
+])
