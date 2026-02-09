@@ -122,8 +122,8 @@ export default defineNuxtPlugin({
       new WriteFieldValuesPermissionManagerType(context)
     )
 
-    $store.registerModule('authProviderAdmin', authProviderAdminStore)
-    $store.registerModule('assistant', assistantStore)
+    $store.registerModuleNuxtSafe('authProviderAdmin', authProviderAdminStore)
+    $store.registerModuleNuxtSafe('assistant', assistantStore)
 
     $registry.register('admin', new AuthProvidersType(context))
     $registry.unregister(

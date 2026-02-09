@@ -136,14 +136,14 @@ export default defineNuxtPlugin({
       i18n.mergeLocaleMessage('ko', ko)
     }*/
 
-    $store.registerModule('row_comments', rowCommentsStore)
-    $store.registerModule('page/view/kanban', kanbanStore)
-    $store.registerModule('page/view/calendar', calendarStore)
-    $store.registerModule('page/view/timeline', timelineStore)
-    $store.registerModule('template/view/kanban', kanbanStore)
-    $store.registerModule('template/view/calendar', calendarStore)
-    $store.registerModule('template/view/timeline', timelineStore)
-    $store.registerModule('impersonating', impersonatingStore)
+    $store.registerModuleNuxtSafe('row_comments', rowCommentsStore)
+    $store.registerModuleNuxtSafe('page/view/kanban', kanbanStore)
+    $store.registerModuleNuxtSafe('page/view/calendar', calendarStore)
+    $store.registerModuleNuxtSafe('page/view/timeline', timelineStore)
+    $store.registerModuleNuxtSafe('template/view/kanban', kanbanStore)
+    $store.registerModuleNuxtSafe('template/view/calendar', calendarStore)
+    $store.registerModuleNuxtSafe('template/view/timeline', timelineStore)
+    $store.registerModuleNuxtSafe('impersonating', impersonatingStore)
 
     $registry.registerNamespace('aiFieldOutputType')
     $registry.registerNamespace('paidFeature')

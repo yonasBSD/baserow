@@ -179,18 +179,21 @@ export default defineNuxtPlugin({
       $i18n.t('pageErrors.errorNameNotUniqueDescription')
     )
 
-    $store.registerModule('page', pageStore)
-    $store.registerModule('element', elementStore)
-    $store.registerModule('domain', domainStore)
-    $store.registerModule('publicBuilder', publicBuilderStore)
-    $store.registerModule('dataSource', dataSourceStore)
-    $store.registerModule('pageParameter', pageParameterStore)
-    $store.registerModule('dataSourceContent', dataSourceContentStore)
-    $store.registerModule('elementContent', elementContentStore)
-    $store.registerModule('theme', themeStore)
-    $store.registerModule('builderWorkflowAction', builderWorkflowActionStore)
-    $store.registerModule('formData', formDataStore)
-    $store.registerModule('builderToast', builderToast)
+    $store.registerModuleNuxtSafe('page', pageStore)
+    $store.registerModuleNuxtSafe('element', elementStore)
+    $store.registerModuleNuxtSafe('domain', domainStore)
+    $store.registerModuleNuxtSafe('publicBuilder', publicBuilderStore)
+    $store.registerModuleNuxtSafe('dataSource', dataSourceStore)
+    $store.registerModuleNuxtSafe('pageParameter', pageParameterStore)
+    $store.registerModuleNuxtSafe('dataSourceContent', dataSourceContentStore)
+    $store.registerModuleNuxtSafe('elementContent', elementContentStore)
+    $store.registerModuleNuxtSafe('theme', themeStore)
+    $store.registerModuleNuxtSafe(
+      'builderWorkflowAction',
+      builderWorkflowActionStore
+    )
+    $store.registerModuleNuxtSafe('formData', formDataStore)
+    $store.registerModuleNuxtSafe('builderToast', builderToast)
 
     $registry.registerNamespace('builderSettings')
     $registry.registerNamespace('element')
