@@ -112,11 +112,15 @@ export const state = () => ({
   items: [],
   selected: {},
   defaultViewId: null,
+  tableId: null,
 })
 
 export const mutations = {
   SET_ITEMS(state, applications) {
     state.items = applications
+  },
+  SET_TABLE_ID(state, tableId) {
+    state.tableId = tableId
   },
   SET_LOADING(state, value) {
     state.loading = value
@@ -349,6 +353,7 @@ export const actions = {
         populateView(data[index], $registry)
       })
       commit('SET_ITEMS', data)
+      commit('SET_TABLE_ID', table.id)
       commit('SET_LOADING', false)
 
       // Get the default view for the table.
@@ -358,6 +363,7 @@ export const actions = {
       }
     } catch (error) {
       commit('SET_ITEMS', [])
+      commit('SET_TABLE_ID', null)
       commit('SET_LOADING', false)
       throw error
     }
