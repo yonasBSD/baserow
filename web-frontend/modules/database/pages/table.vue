@@ -1,6 +1,6 @@
 <template>
   <div v-if="database && table">
-    <DefaultErrorPage v-if="dataError && !view" :error="dataError" />
+    <DefaultErrorPage v-if="dataError && !view?.id" :error="dataError" />
 
     <Table
       v-else
@@ -202,7 +202,8 @@ const dataError = computed(() => data.value?.error)
  */
 useHead(() => ({
   title:
-    (view.value ? view.value.name + ' - ' : '') + (table.value?.name ?? ''),
+    (view.value?.name ? view.value.name + ' - ' : '') +
+    (table.value?.name ?? ''),
 }))
 
 /**

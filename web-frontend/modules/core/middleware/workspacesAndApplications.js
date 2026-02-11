@@ -12,11 +12,18 @@ export default defineNuxtRouteMiddleware(async (to) => {
   // If nuxt generate, pass this middleware
   if (import.meta.server && !event) return
 
-  // Prioritize workspaceId from route params if navigating to a workspace page.
-  // This ensures SSR and client select the same workspace, avoiding hydration mismatch.
-  let workspaceId = to.params.workspaceId
-    ? parseInt(to.params.workspaceId, 10)
-    : getWorkspaceCookie(nuxtApp)
+  let workspaceId = getWorkspaceCookie(nuxtApp)
+
+  // Prefer route param over cookie to avoid double selectById calls on SSR.
+  // Pages can opt out or change param by doing:
+  // `definePageMeta({ useRouteWorkspaceParam: 'none' }).
+  const workspaceIdParam = to.meta.useRouteWorkspaceParam ?? 'workspaceId'
+  if (to.params[workspaceIdParam]) {
+    const routeWorkspaceId = parseInt(to.params[workspaceIdParam], 10)
+    if (!isNaN(routeWorkspaceId)) {
+      workspaceId = routeWorkspaceId
+    }
+  }
 
   // If the workspaces haven't already been selected we will
   if (store.getters['auth/isAuthenticated']) {
