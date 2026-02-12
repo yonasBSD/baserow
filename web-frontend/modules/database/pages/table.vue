@@ -46,6 +46,7 @@ import { normalizeError } from '@baserow/modules/database/utils/errors'
 definePageMeta({
   name: 'database-table',
   layout: 'app',
+  applicationContext: true,
   middleware: [
     'settings',
     'authenticated',
@@ -77,9 +78,8 @@ function parseIntOrNull(x) {
   return x != null ? parseInt(x) : null
 }
 
-const shouldCleanup = ref(false)
-
 // Database and table is selected by the middleware
+
 const database = computed(() => $store.getters['application/getSelected'])
 const table = computed(() => $store.getters['table/getSelected'])
 
@@ -211,20 +211,16 @@ onBeforeUnmount(() => {
   if (table.value) {
     $realtime.unsubscribe('table', { table_id: table.value.id })
   }
-  if (shouldCleanup.value) {
-    $store.dispatch('view/unselect')
-    $store.dispatch('table/unselect')
-    $store.dispatch('application/unselect')
-  }
 })
 
 /**
  * beforeRouteLeave()
  *
- * Mark for cleanup when leaving page.
+ * Unselect when leaving page.
  */
-onBeforeRouteLeave((_to, _from) => {
-  shouldCleanup.value = true
+onBeforeRouteLeave((to, from) => {
+  $store.dispatch('view/unselect')
+  $store.dispatch('table/unselect')
 })
 
 onBeforeRouteUpdate(async (to, from, next) => {

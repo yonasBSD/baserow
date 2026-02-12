@@ -202,6 +202,12 @@ export default defineNuxtModule({
     })
 
     addRouteMiddleware({
+      name: 'cleanupApplicationContext',
+      path: resolve('./middleware/cleanupApplicationContext'),
+      global: true,
+    })
+
+    addRouteMiddleware({
       name: 'pendingJobs',
       path: resolve('./middleware/pendingJobs'),
     })

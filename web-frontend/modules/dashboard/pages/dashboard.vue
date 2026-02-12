@@ -16,6 +16,7 @@ import DashboardContent from '@baserow/modules/dashboard/components/DashboardCon
 
 definePageMeta({
   layout: 'app',
+  applicationContext: true,
   middleware: ['dashboardLoading'],
 })
 
@@ -79,10 +80,5 @@ onBeforeUnmount(() => {
   if (dashboard.value) {
     $realtime.unsubscribe('dashboard', { dashboard_id: dashboard.value.id })
   }
-})
-
-// Navigation guard
-onBeforeRouteLeave(() => {
-  store.dispatch('application/unselect')
 })
 </script>
