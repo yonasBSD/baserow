@@ -7,16 +7,15 @@
     :error="hasError"
   >
     <Dropdown
+      ref="dropdown"
       :value="modelValue"
-      :show-search="true"
-      :fixed-items="true"
+      show-search
+      fixed-items
+      show-footer
       :disabled="disabled"
       :error="hasError"
       size="regular"
-      @update:model-value="
-        (isAddNew($event) ? $emit('add-new', $event) : null,
-        $emit('update:modelValue', $event))
-      "
+      @update:model-value="$emit('update:modelValue', $event)"
     >
       <DropdownItem
         v-for="r in fields"
@@ -26,12 +25,16 @@
         :icon="r.icon ? r.icon : r.id ? icon : null"
       ></DropdownItem>
 
-      <DropdownItem
-        v-if="addNew"
-        :name="$t('dateDependencyModal.addNewField')"
-        value="add-new"
-        icon="iconoir-plus"
-      ></DropdownItem>
+      <template #footer>
+        <a
+          class="select__footer-button"
+          :class="{ 'button--loading': loading }"
+          @click="$emit('add-new')"
+        >
+          <i class="iconoir-plus"></i>
+          {{ $t('dateDependencyModal.addNewField') }}
+        </a>
+      </template>
     </Dropdown>
     <template #error>{{ errors[0].$message }}</template>
   </FormGroup>
@@ -83,6 +86,7 @@ export default {
     },
     disabled: { type: Boolean, required: false, default: false },
     addNew: { type: Boolean, required: false, default: false },
+    loading: { type: Boolean, required: false, default: true },
   },
   computed: {
     errorMessageStr() {
@@ -96,8 +100,9 @@ export default {
     },
   },
   methods: {
-    isAddNew(value) {
-      return value === 'add-new'
+    async hideDropdown() {
+      await this.$nextTick()
+      this.$refs.dropdown.hide()
     },
   },
 }
