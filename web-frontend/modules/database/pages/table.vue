@@ -1,5 +1,5 @@
 <template>
-  <div v-if="database && table">
+  <div>
     <DefaultErrorPage v-if="dataError && !view?.id" :error="dataError" />
 
     <Table
@@ -78,24 +78,23 @@ function parseIntOrNull(x) {
   return x != null ? parseInt(x) : null
 }
 
-// Database and table is selected by the middleware
-
-const database = computed(() => $store.getters['application/getSelected'])
-const table = computed(() => $store.getters['table/getSelected'])
-
 const { data, error, pending, status, refresh } = await useAsyncData(
   `database-table-page-${route.params.databaseId}-${route.params.tableId}-${route.params.viewId ?? 'null'}`,
   async () => {
     // Use current route params (not captured params) so refresh works correctly
     const currentParams = { ...route.params }
     const viewId = currentParams.viewId ? parseInt(currentParams.viewId) : null
+    // It's okay to use the `table/getSelected` because the correct ones are selected
+    // using the `modules/database/middleware/selectWorkspaceDatabaseTable.js`
+    // middleware.
+    const currentTable = $store.getters['table/getSelected']
+    const currentDatabase = $store.getters['application/getSelected']
 
     const result = {
       view: undefined,
+      database: currentDatabase,
+      table: currentTable,
     }
-
-    const currentTable = $store.getters['table/getSelected']
-    const currentDatabase = $store.getters['application/getSelected']
 
     if ($store.state.view.tableId !== currentTable.id) {
       await $store.dispatch('view/fetchAll', currentTable)
@@ -128,6 +127,7 @@ const { data, error, pending, status, refresh } = await useAsyncData(
     // Fetch the Fields
     await $store.dispatch('field/fetchAll', currentTable)
     const fetchedFields = $store.getters['field/getAll']
+    result.fields = fetchedFields
 
     // Select view
     if (viewId !== null && viewId !== 0) {
@@ -184,9 +184,10 @@ if (data.value?.redirect) {
 /**
  * Expose the actual values via computed shortcuts
  */
-
+const database = computed(() => data.value?.database)
+const table = computed(() => data.value?.table)
 const view = computed(() => data.value?.view || {})
-const fields = computed(() => $store.getters['field/getAll'])
+const fields = computed(() => data.value?.fields)
 const dataError = computed(() => data.value?.error)
 
 /**
