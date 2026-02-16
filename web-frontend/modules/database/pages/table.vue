@@ -27,20 +27,14 @@
 </template>
 
 <script setup>
-import { computed, onMounted, onBeforeUnmount, watch, ref } from 'vue'
-import {
-  onBeforeRouteLeave,
-  onBeforeRouteUpdate,
-  useRoute,
-  useRouter,
-} from 'vue-router'
+import { computed, onMounted, onBeforeUnmount } from 'vue'
+import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
 import { useHead } from '#imports'
 import { useAsyncData } from '#app'
 
 import Table from '@baserow/modules/database/components/table/Table'
 import DefaultErrorPage from '@baserow/modules/core/components/DefaultErrorPage'
 import { StoreItemLookupError } from '@baserow/modules/core/errors'
-import { getDefaultView } from '@baserow/modules/database/utils/view'
 import { normalizeError } from '@baserow/modules/database/utils/errors'
 
 definePageMeta({
@@ -50,7 +44,14 @@ definePageMeta({
     'settings',
     'authenticated',
     'workspacesAndApplications',
+    // Because there is no hook that is called before the route changes, we need the
+    // tableLoading middleware to change the table loading state. This change will get
+    // rendered right away. This allows us to have a custom loading animation when
+    // switching views.
     'tableLoading',
+    // Middleware specifically for the table. It makes sure that the workspace,
+    // database, table, fields, views, row, etc are all fetched based on the provided
+    // route parameters.
     'selectWorkspaceDatabaseTable',
     'pendingJobs',
   ],
@@ -70,17 +71,18 @@ function finishLoading() {
   nuxtApp.callHook('page:loading:end')
 }
 
+// We need the tableLoading state to show a small loading animation when switching
+// between views or tables. Because some of the data will be populated by the asyncData
+// function and some by mapping the state of a store it could look a bit strange for the
+// user when switching between views because not all data renders at the same time. That
+// is why we show this loading animation. Store changes are always rendered right away.
 const tableLoading = computed(() => $store.state.table.loading)
 const views = computed(() => $store.state.view.items)
 
-function parseIntOrNull(x) {
-  return x != null ? parseInt(x) : null
-}
-
-const { data, error, pending, status, refresh } = await useAsyncData(
+const { data, error } = await useAsyncData(
   `database-table-page-${route.params.databaseId}-${route.params.tableId}-${route.params.viewId ?? 'null'}`,
   async () => {
-    // Use current route params (not captured params) so refresh works correctly
+    // Use current route params (not captured params) so refresh works correctly.
     const currentParams = { ...route.params }
     const viewId = currentParams.viewId ? parseInt(currentParams.viewId) : null
     // It's okay to use the `table/getSelected` because the correct ones are selected
@@ -88,53 +90,20 @@ const { data, error, pending, status, refresh } = await useAsyncData(
     // middleware.
     const currentTable = $store.getters['table/getSelected']
     const currentDatabase = $store.getters['application/getSelected']
+    const currentFields = $store.getters['field/getAll']
 
     const result = {
       view: undefined,
       database: currentDatabase,
       table: currentTable,
+      fields: currentFields,
     }
 
-    if ($store.state.view.tableId !== currentTable.id) {
-      await $store.dispatch('view/fetchAll', currentTable)
-    }
-
-    // No viewId → redirect to default view
-    if (viewId === null) {
-      const rowId = currentParams.rowId ? parseInt(currentParams.rowId) : null
-      const workspaceId = currentDatabase.workspace.id
-      const viewToUse = getDefaultView(
-        nuxtApp,
-        $store,
-        workspaceId,
-        rowId !== null
-      )
-
-      if (viewToUse) {
-        const newParams = { ...currentParams, viewId: viewToUse.id }
-        // Let's redirect to the route WITH the viewId
-        return {
-          redirect: router.resolve({
-            name: route.name,
-            params: newParams,
-            query: route.query,
-          }),
-        }
-      }
-    }
-
-    // Fetch the Fields
-    await $store.dispatch('field/fetchAll', currentTable)
-    const fetchedFields = $store.getters['field/getAll']
-    result.fields = fetchedFields
-
-    // Select view
     if (viewId !== null && viewId !== 0) {
       try {
         const { view } = await $store.dispatch('view/selectById', viewId)
-
-        result.view = view
         const type = $registry.get('view', view.type)
+        result.view = view
 
         if (type.isDeactivated(currentDatabase.workspace.id)) {
           result.error = { statusCode: 400, message: type.getDeactivatedText() }
@@ -145,7 +114,7 @@ const { data, error, pending, status, refresh } = await useAsyncData(
           { store: $store, app: nuxtApp },
           currentDatabase,
           view,
-          fetchedFields,
+          currentFields,
           'page/'
         )
       } catch (e) {
@@ -156,42 +125,24 @@ const { data, error, pending, status, refresh } = await useAsyncData(
       }
     }
 
-    // Possibly fetch selected row
-    if (currentParams.rowId) {
-      await $store.dispatch('rowModalNavigation/fetchRow', {
-        tableId: currentTable.id,
-        rowId: currentParams.rowId,
-      })
-    }
-
     return result
   }
 )
 
 if (error.value) {
-  // If we have an error we want to display it.
+  // If we have an unexpected error after the useAsyncData, we want to display it
+  // directly to the user.
   throw error.value
 }
 
-if (data.value?.redirect) {
-  // We have a redirect, we can apply it now. Using `replace` so the intermediate
-  // URL (without viewId) doesn't stay in the browser history — otherwise the back
-  // button would land on it and immediately redirect forward again.
-  await navigateTo(data.value.redirect.href, { replace: true })
-}
-
-/**
- * Expose the actual values via computed shortcuts
- */
+// Expose the actual values via computed shortcuts to make sure that if the asyncData
+// recomputes, it will show the correct values.
 const database = computed(() => data.value?.database)
 const table = computed(() => data.value?.table)
 const view = computed(() => data.value?.view)
 const fields = computed(() => data.value?.fields)
 const dataError = computed(() => data.value?.error)
 
-/**
- * Set page <head> title
- */
 useHead(() => ({
   title:
     (view.value?.name ? view.value.name + ' - ' : '') +
@@ -199,7 +150,9 @@ useHead(() => ({
 }))
 
 /**
- * Lifecycle
+ * The onMounted hook is called right after the asyncData finishes and when the
+ * page has been rendered for the first time. The perfect moment to stop the table
+ * loading animation.
  */
 onMounted(() => {
   if (table.value) {
@@ -215,61 +168,14 @@ onBeforeUnmount(() => {
 })
 
 /**
- * beforeRouteLeave()
- *
- * Unselect when leaving page.
+ * When the user leaves to another page we want to unselect the selected table. This
+ * way it will not be highlighted the left sidebar.
  */
 onBeforeRouteLeave((to, from) => {
   $store.dispatch('view/unselect')
   $store.dispatch('table/unselect')
 })
 
-onBeforeRouteUpdate(async (to, from, next) => {
-  const currentRowId = parseIntOrNull(to.params?.rowId)
-  const currentTableId = parseIntOrNull(to.params.tableId)
-
-  const storeRow = $store.getters['rowModalNavigation/getRow']
-  const prevTableId = parseIntOrNull(from.params.tableId)
-  const failed = $store.getters['rowModalNavigation/getFailedToFetchTableRowId']
-
-  const isRowOnlyNavigation =
-    currentTableId === prevTableId &&
-    to.params.viewId === from.params.viewId &&
-    to.params.rowId !== from.params.rowId
-
-  if (currentRowId == null) {
-    await $store.dispatch('rowModalNavigation/clearRow')
-  } else if (
-    failed &&
-    parseIntOrNull(failed?.rowId) === currentRowId &&
-    parseIntOrNull(failed?.tableId) === currentTableId
-  ) {
-    return next({
-      name: 'database-table',
-      params: { ...to.params, rowId: null },
-    })
-  } else if (storeRow?.id !== currentRowId || prevTableId !== currentTableId) {
-    const row = await $store.dispatch('rowModalNavigation/fetchRow', {
-      tableId: currentTableId,
-      rowId: currentRowId,
-    })
-    if (row == null) {
-      return next({
-        name: 'database-table',
-        params: { ...to.params, rowId: null },
-      })
-    }
-  }
-  next()
-
-  if (isRowOnlyNavigation) {
-    finishLoading()
-  }
-})
-
-/**
- * Methods
- */
 function selectedView(v) {
   if (view.value && view.value.id === v.id) return
 
@@ -287,6 +193,8 @@ async function navigateToRowModal(row) {
   }
 
   if (row) {
+    // Prevent the row from being fetched again from the backend
+    // when the route is updated.
     await $store.dispatch('rowModalNavigation/setRow', row)
   }
 
@@ -307,6 +215,9 @@ async function setAdjacentRow(previous, row = null, term = null) {
   if (row) {
     await navigateToRowModal(row)
   } else {
+    // If the row isn't provided then the row is
+    // probably not visible to the user at the moment
+    // and needs to be fetched
     await fetchAdjacentRow(previous, term)
   }
 }
