@@ -112,7 +112,6 @@
       </div>
     </template>
     <DataSourceCreateEditModal
-      v-if="editModalVisible"
       :key="currentDataSourceId"
       ref="dataSourceCreateEditModal"
       :data-source-id="currentDataSourceId"
@@ -145,7 +144,6 @@ export default {
       state: 'loaded',
       creationInProgress: false,
       currentDataSourceId: null,
-      editModalVisible: false,
     }
   },
   computed: {
@@ -196,8 +194,8 @@ export default {
         notifyIf(error)
       }
     },
-    onHide() {
-      this.editModalVisible = false
+    async onHide() {
+      await this.$nextTick()
       this.currentDataSourceId = null
     },
     orderDS(shared) {
@@ -215,7 +213,6 @@ export default {
     },
     async createDataSource() {
       this.currentDataSourceId = null
-      this.editModalVisible = true
       await this.$nextTick()
       this.$refs.dataSourceCreateEditModal.show()
     },
@@ -244,7 +241,6 @@ export default {
     },
     async editDataSource(dataSource) {
       this.currentDataSourceId = dataSource.id
-      this.editModalVisible = true
       await this.$nextTick()
       this.$refs.dataSourceCreateEditModal.show()
     },

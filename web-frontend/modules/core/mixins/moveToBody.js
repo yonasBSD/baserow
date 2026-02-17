@@ -23,19 +23,15 @@ export default {
     // to prevent closing when clicking in a child. We also check which parent
     // is first so can correctly move the element.
     while (parent) {
-      if (Object.prototype.hasOwnProperty.call(parent, 'moveToBody')) {
+      if (parent?.$data?.moveToBody) {
         parent.registerMoveToBodyChild(this)
-        if (first === null) {
-          first = parent
-        }
+        if (first === null) first = parent
       }
       // There could be components that need to know which child element have
-      // been moved to the body, but haven't moved to the body themself. If they
+      // been moved to the body, but haven't moved to the body themselves. If they
       // only have a `registerMoveToBodyChild` method, we register this
       // component a there.
-      else if (
-        Object.prototype.hasOwnProperty.call(parent, 'registerMoveToBodyChild')
-      ) {
+      else if (parent && typeof parent.registerMoveToBodyChild === 'function') {
         parent.registerMoveToBodyChild(this)
       }
       parent = parent.$parent
@@ -64,11 +60,9 @@ export default {
       }
     } else if (this.$el) {
       // Because there is no parent we can directly move the component to the
-      // end of the body. Elements that mount later are appended after earlier
-      // ones so that they appear on top when sharing the same z-index (DOM
-      // order determines visual stacking for equal z-index values).
+      // top of the body so it will be positioned over any other element.
       const body = document.body
-      body.appendChild(this.$el)
+      body.insertBefore(this.$el, body.firstChild)
       this.fireMovedToBodyHandlers()
     }
 
