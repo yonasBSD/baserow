@@ -1,5 +1,6 @@
 <template>
   <div
+    ref="gridView"
     v-scroll="scroll"
     class="grid-view"
     :class="[
@@ -413,7 +414,6 @@
 
 <script>
 import { mapGetters } from 'vuex'
-import ResizeObserver from 'resize-observer-polyfill'
 
 import { notifyIf } from '@baserow/modules/core/utils/error'
 import GridViewSection from '@baserow/modules/database/components/view/grid/GridViewSection'
@@ -649,16 +649,12 @@ export default {
   },
   mounted() {
     this.resizeObserver = new ResizeObserver(this.onWindowResize)
-    this.resizeObserver.observe(this.$el)
+    this.resizeObserver.observe(this.$refs.gridView)
     window.addEventListener('keydown', this.keyDownEvent)
     window.addEventListener('copy', this.copySelection)
     window.addEventListener('paste', this.pasteFromMultipleCellSelection)
     window.addEventListener('click', this.cancelMultiSelectIfActive)
     window.addEventListener('mouseup', this.multiSelectStop)
-    this.$refs.left.$el.addEventListener(
-      'scroll',
-      this.$el.horizontalScrollEvent
-    )
     this.$store.dispatch(
       this.storePrefix + 'view/grid/fetchAllFieldAggregationData',
       { view: this.view }
@@ -672,6 +668,7 @@ export default {
   beforeUnmount() {
     if (this.resizeObserver !== null) {
       this.resizeObserver.disconnect()
+      this.resizeObserver = null
     }
     window.removeEventListener('keydown', this.keyDownEvent)
     window.removeEventListener('copy', this.copySelection)
@@ -1387,7 +1384,7 @@ export default {
           this.storePrefix + 'view/grid/isMultiSelectActive'
         ] &&
         !event.shiftKey &&
-        (!isElement(this.$el, event.target) ||
+        (!isElement(this.$refs.gridView, event.target) ||
           !['grid-view__row', 'grid-view__rows', 'grid-view'].includes(
             event.target.classList[0]
           ))
@@ -1681,7 +1678,7 @@ export default {
     checkCanFitInTwoColumns() {
       // In some cases this method is called when the component hasn't fully been
       // loaded. This will make sure we don't change the state before that initial load.
-      if (!this.$el) {
+      if (!this.$refs.gridView) {
         return
       }
 
@@ -1693,7 +1690,7 @@ export default {
         (primary ? this.getFieldWidth(primary) : 0) +
         300
 
-      this.canFitInTwoColumns = this.$el.clientWidth > maxWidth
+      this.canFitInTwoColumns = this.$refs.gridView.clientWidth > maxWidth
     },
     /**
      * Event called when the grid view element window resizes.
