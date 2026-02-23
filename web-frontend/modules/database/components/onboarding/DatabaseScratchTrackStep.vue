@@ -43,40 +43,38 @@
       v-show="what !== ''"
       :key="index"
       class="margin-bottom-2"
-      :error="v$['row' + index]?.$error"
       small-label
     >
       <template v-if="index === 0" #label>
         {{ $t('databaseScratchTrackStep.thisIncludes') }}</template
       >
       <FormInput
-        v-model="v$['row' + index].$model"
+        v-model="$data['row' + index]"
         :placeholder="$t('databaseScratchTrackStep.rowName') + '...'"
         size="large"
-        :error="v$['row' + index]?.$error"
         @input="updateValue"
-        @blur="v$['row' + index].$touch"
       />
-      <template #error>
-        {{ v$['row' + index].$errors[0].$message }}
-      </template>
     </FormGroup>
   </div>
 </template>
 
 <script>
+import { useI18n } from 'vue-i18n'
 import { useVuelidate } from '@vuelidate/core'
 import { required, helpers } from '@vuelidate/validators'
 
 export default {
   name: 'DatabaseScratchTrackStep',
+  emits: ['update-data'],
   setup() {
     return { v$: useVuelidate({ $lazy: true }) }
   },
   data() {
+    const { t } = useI18n()
+    const name = this.$store.getters['auth/getName']
     return {
       what: '',
-      tableName: '',
+      tableName: t('databaseImportStep.tableNamePrefill', { name }),
       own: false,
       row0: '',
       row1: '',
@@ -122,33 +120,28 @@ export default {
         this.what !== value &&
         Object.prototype.hasOwnProperty.call(this.whatItems, value)
       ) {
-        this.v$.row0.$model = this.whatItems[value][0]
-        this.v$.row1.$model = this.whatItems[value][1]
-        this.v$.row2.$model = this.whatItems[value][2]
+        this.row0 = this.whatItems[value][0]
+        this.row1 = this.whatItems[value][1]
+        this.row2 = this.whatItems[value][2]
       }
 
-      // this.v$.row0?.$touch()
       this.what = value
-      this.updateValue()
+
+      this.$nextTick(() => {
+        this.v$.$touch()
+        this.updateValue()
+      })
     },
     updateValue() {
-      const tableName = this.what === 'own' ? this.tableName : this.what
-      const rows = [this.row0, this.row1, this.row2]
-      this.$emit('update-data', { tableName, rows })
+      this.$nextTick(() => {
+        const tableName = this.what === 'own' ? this.tableName : this.what
+        const rows = [this.row0, this.row1, this.row2]
+        this.$emit('update-data', { tableName, rows })
+      })
     },
   },
   validations() {
     const rules = {}
-
-    rules.row0 = {
-      required: helpers.withMessage(this.$t('error.requiredField'), required),
-    }
-    rules.row1 = {
-      required: helpers.withMessage(this.$t('error.requiredField'), required),
-    }
-    rules.row2 = {
-      required: helpers.withMessage(this.$t('error.requiredField'), required),
-    }
 
     if (this.what === 'own') {
       rules.tableName = {

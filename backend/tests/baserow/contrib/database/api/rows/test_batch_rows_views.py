@@ -797,11 +797,11 @@ def test_batch_create_rows_dependent_fields(api_client, data_fixture):
         "items": [
             {
                 f"id": 1,
-                f"field_{formula_field.id}": f"{str(120*2)}",
+                f"field_{formula_field.id}": f"{str(120 * 2)}",
             },
             {
                 f"id": 2,
-                f"field_{formula_field.id}": f"{str(240*2)}",
+                f"field_{formula_field.id}": f"{str(240 * 2)}",
             },
         ]
     }
@@ -1978,11 +1978,11 @@ def test_batch_update_rows_dependent_fields(api_client, data_fixture):
         "items": [
             {
                 f"id": row_1.id,
-                f"field_{formula_field.id}": f"{str(120*2)}",
+                f"field_{formula_field.id}": f"{str(120 * 2)}",
             },
             {
                 f"id": row_2.id,
-                f"field_{formula_field.id}": f"{str(240*2)}",
+                f"field_{formula_field.id}": f"{str(240 * 2)}",
             },
         ]
     }
@@ -2382,6 +2382,27 @@ def test_batch_delete_rows_user_not_in_workspace(api_client, data_fixture):
 
 @pytest.mark.django_db
 @pytest.mark.api_rows
+def test_batch_delete_rows_view_does_not_exist(api_client, data_fixture):
+    user, jwt_token = data_fixture.create_user_and_token()
+    table = data_fixture.create_database_table(user=user)
+    model = table.get_model()
+    row_1 = model.objects.create()
+    request_body = {"items": [row_1.id]}
+    url = reverse("api:database:rows:batch-delete", kwargs={"table_id": table.id})
+
+    response = api_client.post(
+        f"{url}?view=-1",
+        request_body,
+        format="json",
+        HTTP_AUTHORIZATION=f"JWT {jwt_token}",
+    )
+
+    assert response.status_code == HTTP_404_NOT_FOUND, response.json()
+    assert response.json()["error"] == "ERROR_VIEW_DOES_NOT_EXIST"
+
+
+@pytest.mark.django_db
+@pytest.mark.api_rows
 def test_batch_delete_rows_invalid_table_id(api_client, data_fixture):
     user, jwt_token = data_fixture.create_user_and_token()
     url = reverse("api:database:rows:batch-delete", kwargs={"table_id": 14343})
@@ -2420,9 +2441,9 @@ def test_batch_delete_rows_trash_them(api_client, data_fixture):
     row_1.refresh_from_db()
     row_2.refresh_from_db()
     row_3.refresh_from_db()
-    assert getattr(row_1, "trashed") is True
-    assert getattr(row_2, "trashed") is True
-    assert getattr(row_3, "trashed") is False
+    assert row_1.trashed is True
+    assert row_2.trashed is True
+    assert row_3.trashed is False
 
 
 @pytest.mark.django_db

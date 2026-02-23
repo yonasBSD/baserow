@@ -1,5 +1,5 @@
 <template>
-  <Modal wide v-on="$listeners">
+  <Modal ref="modal" wide v-on="$attrs">
     <h2 class="box__title">
       {{
         create
@@ -41,7 +41,7 @@
         <Button
           size="large"
           :loading="loading"
-          :disabled="loading || !changed || $refs.dataSourceForm.v$.$anyError"
+          :disabled="submitIsDisabled"
           @click.prevent="$refs.dataSourceForm.submit()"
         >
           {{ create ? $t('action.create') : $t('action.save') }}
@@ -77,6 +77,7 @@ export default {
   props: {
     dataSourceId: { type: Number, required: false, default: null },
   },
+  emits: ['updated'],
   data() {
     return {
       loading: false,
@@ -85,6 +86,11 @@ export default {
     }
   },
   computed: {
+    submitIsDisabled() {
+      return (
+        this.loading || !this.changed || this.$refs.dataSourceForm.v$.$anyError
+      )
+    },
     dataSources() {
       return this.$store.getters['dataSource/getPageDataSources'](
         this.currentPage
