@@ -43,6 +43,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     xmlsec1 \
     gettext \
     tini \
+    tzdata-legacy \
     && \
     # Setup user and group with fixed UID/GID for volume permission consistency
     getent group "$GID" || groupadd --system --gid "$GID" "${DOCKER_USER}" && \
@@ -118,11 +119,13 @@ SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 # Install postgres + redis (PGDG repo already added in base stage)
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    curl -fsSL https://packages.redis.io/gpg | gpg --batch --dearmor -o /usr/share/keyrings/redis-archive-keyring.gpg && \
+    echo "deb [signed-by=/usr/share/keyrings/redis-archive-keyring.gpg] https://packages.redis.io/deb trixie main" > /etc/apt/sources.list.d/redis.list && \
     apt-get update && \
     apt-get install --no-install-recommends -y \
     "postgresql-${POSTGRES_VERSION}" \
     "postgresql-${POSTGRES_VERSION}-pgvector" \
-    redis-server && \
+    redis && \
     # Setup redis
     usermod -a -G tty redis && \
     sed -i 's/daemonize yes/daemonize no/g' /etc/redis/redis.conf && \
