@@ -1326,7 +1326,7 @@ class LocalBaserowAggregateRowsUserServiceType(
 
         :param values: The values defining the
             aggregate rows service type.
-        :param user: The user on whos behalf the aggregation is
+        :param user: The user on whose behalf the aggregation is
             requested.
         :param instance: The service instance.
         """
@@ -1487,7 +1487,7 @@ class LocalBaserowAggregateRowsUserServiceType(
                 raise ServiceImproperlyConfiguredDispatchException(
                     f"The field with ID {service.field.id} is trashed."
                 )
-            field = service.field
+            field = service.field.specific
             model = self.get_table_model(service)
             model_field = model._meta.get_field(field.db_column)
             queryset = self.build_queryset(
@@ -1499,6 +1499,7 @@ class LocalBaserowAggregateRowsUserServiceType(
             return {
                 "data": {"result": result},
                 "baserow_table_model": model,
+                "field": field,
             }
         except DjangoFieldDoesNotExist as ex:
             raise ServiceImproperlyConfiguredDispatchException(
@@ -1522,7 +1523,18 @@ class LocalBaserowAggregateRowsUserServiceType(
         :return: A dictionary containing the aggregation result.
         """
 
-        return DispatchResult(data=data["data"])
+        # Use the field type's serializer field to ensure the aggregation result
+        # is serialized correctly. Some aggregations can return values which are not
+        # JSON serializable (e.g. Decimal), so we need to use the serializer field
+        # to convert them into a JSON serializable format.
+        result = (
+            data["field"]
+            .get_type()
+            .get_serializer_field(data["field"])
+            .to_representation(data["data"]["result"])
+        )
+
+        return DispatchResult(data={"result": result})
 
     def extract_properties(self, path: List[str], **kwargs) -> List[str]:
         """
