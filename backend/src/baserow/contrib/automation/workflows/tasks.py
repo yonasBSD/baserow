@@ -1,4 +1,4 @@
-from typing import Dict, List, Optional, Union
+from typing import Optional
 
 from django.utils import timezone
 
@@ -6,6 +6,7 @@ from celery.canvas import Signature
 
 from baserow.config.celery import app
 from baserow.contrib.automation.history.constants import HistoryStatusChoices
+from baserow.contrib.automation.history.handler import AutomationHistoryHandler
 from baserow.contrib.automation.history.models import AutomationWorkflowHistory
 from baserow.core.db import atomic_with_retry_on_deadlock
 
@@ -13,18 +14,17 @@ from baserow.core.db import atomic_with_retry_on_deadlock
 @app.task(queue="automation_workflow")
 def start_workflow_celery_task(
     workflow_id: int,
-    event_payload: Optional[Union[Dict, List[Dict]]],
-    simulate_until_node_id: Optional[int] = None,
+    history_id: int,
 ):
     from baserow.contrib.automation.workflows.handler import AutomationWorkflowHandler
 
     @atomic_with_retry_on_deadlock()
     def _start():
         workflow = AutomationWorkflowHandler().get_workflow(workflow_id)
+        history = AutomationHistoryHandler().get_workflow_history(history_id)
         return AutomationWorkflowHandler().start_workflow(
             workflow,
-            event_payload,
-            simulate_until_node_id=simulate_until_node_id,
+            history,
         )
 
     result = _start()
@@ -38,7 +38,7 @@ def start_workflow_celery_task(
 
 @app.task
 def handle_workflow_dispatch_done(
-    history_id: Optional[int] = None,
+    history_id: int,
     simulate_until_node_id: Optional[int] = None,
 ):
     """
@@ -50,11 +50,12 @@ def handle_workflow_dispatch_done(
     """
 
     if simulate_until_node_id:
+        # We just delete the history entry as we don't need it.
         AutomationWorkflowHistory.objects.filter(
-            simulate_until_node_id=simulate_until_node_id
+            id=history_id, simulate_until_node_id=simulate_until_node_id
         ).delete()
 
-    if history_id:
+    else:
         # Only update the history if it's still started.
         # If the workflow history was marked as failed by a specific node, we
         # don't want to overwrite it.

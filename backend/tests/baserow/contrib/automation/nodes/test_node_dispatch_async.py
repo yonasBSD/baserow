@@ -11,7 +11,6 @@ from baserow.contrib.automation.history.models import (
     AutomationWorkflowHistory,
 )
 from baserow.contrib.automation.nodes.handler import AutomationNodeHandler
-from baserow.contrib.automation.workflows.handler import AutomationWorkflowHandler
 from baserow.contrib.automation.workflows.tasks import handle_workflow_dispatch_done
 from baserow.test_utils.helpers import AnyInt, AnyStr
 
@@ -130,7 +129,7 @@ def create_workflow(
 
 
 def create_workflow_history(data_fixture, workflow, trigger_table_fields):
-    original_workflow = AutomationWorkflowHandler().get_original_workflow(workflow)
+    original_workflow = workflow.get_original()
     return data_fixture.create_automation_workflow_history(
         workflow=original_workflow,
         event_payload={
@@ -163,9 +162,8 @@ def test_dispatch_node_service_error(data_fixture):
     data_fixture.create_local_baserow_create_row_action_node(
         workflow=trigger_node.workflow
     )
-    original_workflow = AutomationWorkflowHandler().get_original_workflow(
-        trigger_node.workflow
-    )
+    original_workflow = trigger_node.workflow.get_original()
+
     workflow_history = data_fixture.create_automation_workflow_history(
         workflow=original_workflow
     )
@@ -417,7 +415,9 @@ def test_dispatch_node_dispatches_trigger_simulation(
 
     # Ensure workflow history is deleted, since we don't want history
     # entries for simulations.
-    handle_workflow_dispatch_done(simulate_until_node_id=trigger_node.id)
+    handle_workflow_dispatch_done(
+        workflow_history.id, simulate_until_node_id=trigger_node.id
+    )
     assert (
         AutomationWorkflowHistory.objects.filter(id=workflow_history.id).exists()
         is False
@@ -530,7 +530,9 @@ def test_dispatch_node_dispatches_action_simulation(
 
     # Ensure workflow history is deleted, since we don't want history
     # entries for simulations.
-    handle_workflow_dispatch_done(simulate_until_node_id=action_node.id)
+    handle_workflow_dispatch_done(
+        workflow_history.id, simulate_until_node_id=action_node.id
+    )
     assert (
         AutomationWorkflowHistory.objects.filter(id=workflow_history.id).exists()
         is False
@@ -590,7 +592,9 @@ def test_dispatch_node_dispatches_iterator_simulation(
     # No more nodes to dispatch
     assert result is None
 
-    handle_workflow_dispatch_done(simulate_until_node_id=iterator_child_2_node.id)
+    handle_workflow_dispatch_done(
+        workflow_history.id, simulate_until_node_id=iterator_child_2_node.id
+    )
 
     # Make sure the last iterator node simulation saves a history entry
     iterator_child_2_node.service.specific.refresh_from_db()
@@ -933,7 +937,7 @@ def test_dispatch_node_with_advanced_formulas(data_fixture):
     action_table_model = action_table.get_model()
     assert action_table_model.objects.count() == 0
 
-    original_workflow = AutomationWorkflowHandler().get_original_workflow(workflow)
+    original_workflow = workflow.get_original()
     workflow_history = data_fixture.create_automation_workflow_history(
         workflow=original_workflow,
         event_payload={
@@ -1059,7 +1063,7 @@ def test_dispatch_node_dispatches_router_edge_simulation(
     for node in [trigger_node, router_a, router_b, action_node]:
         assert node.service.specific.sample_data is None
 
-    original_workflow = AutomationWorkflowHandler().get_original_workflow(workflow)
+    original_workflow = workflow.get_original()
     workflow_history = data_fixture.create_automation_workflow_history(
         workflow=original_workflow,
         event_payload={
@@ -1102,7 +1106,9 @@ def test_dispatch_node_dispatches_router_edge_simulation(
     )
 
     # Verify workflow history is deleted for simulations
-    handle_workflow_dispatch_done(simulate_until_node_id=action_node.id)
+    handle_workflow_dispatch_done(
+        workflow_history.id, simulate_until_node_id=action_node.id
+    )
     assert (
         AutomationWorkflowHistory.objects.filter(id=workflow_history.id).exists()
         is False
@@ -1162,9 +1168,8 @@ def test_dispatch_node_iterator_with_no_rows(data_fixture):
     iterator_child_1_node = data["iterator_child_1_node"]
 
     # Create workflow history with 0 rows in the event payload.
-    original_workflow = AutomationWorkflowHandler().get_original_workflow(
-        trigger_node.workflow
-    )
+    original_workflow = trigger_node.workflow.get_original()
+
     workflow_history = data_fixture.create_automation_workflow_history(
         workflow=original_workflow,
         event_payload={

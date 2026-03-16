@@ -1,16 +1,16 @@
 from collections import defaultdict
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional
 from zipfile import ZipFile
 
 from django.conf import settings
 from django.contrib.auth.models import AbstractUser
 from django.core.files.storage import Storage
-from django.db import IntegrityError
+from django.db import IntegrityError, transaction
 from django.db.models import QuerySet
 from django.utils import timezone
 
-from celery.canvas import chain
+from celery.canvas import Signature, chain
 from opentelemetry import trace
 
 from baserow.contrib.automation.automation_dispatch_context import (
@@ -132,26 +132,14 @@ class AutomationWorkflowHandler(metaclass=baserow_trace_methods(tracer)):
 
         return _get_published_workflow(workflow)
 
-    def get_original_workflow(
-        self, workflow: AutomationWorkflow
-    ) -> Optional[AutomationWorkflow]:
-        """
-        Gets the original workflow related to the provided published
-        AutomationWorkflow instance.
+    def _invalidate_workflow_caches(self, workflow: AutomationWorkflow) -> None:
+        original_workflow = workflow.get_original()
 
-        If the workflow isn't published but allow_test_run_until is set,
-        it indicates that the provided workflow is the one being run. Thus the
-        same workflow is returned.
-
-        :param workflow: The published workflow for which the original version
-            should be returned.
-        :return: The original workflow, if it exists.
-        """
-
-        if workflow.automation.published_from_id:
-            return workflow.automation.published_from
-        else:
-            return workflow
+        global_cache.invalidate(f"wa_published_workflow_{original_workflow.id}")
+        global_cache.invalidate(self._get_rate_limit_cache_key(original_workflow))
+        global_cache.invalidate(
+            self._get_workflow_history_rate_limit_cache_key(original_workflow)
+        )
 
     def get_workflows(
         self, automation: Automation, base_queryset: Optional[QuerySet] = None
@@ -674,164 +662,25 @@ class AutomationWorkflowHandler(metaclass=baserow_trace_methods(tracer)):
         duplicate_automation.published_from = workflow
         duplicate_automation.save(update_fields=["published_from"])
 
+        self._invalidate_workflow_caches(workflow)
+
         return duplicate_automation.workflows.first()
-
-    def before_run(self, workflow: AutomationWorkflow) -> None:
-        """
-        Runs pre-flight checks before a workflow is allowed to run.
-
-        Each check may raise a subclass of the AutomationWorkflowBeforeRunError error.
-        """
-
-        # If we don't come from an event, we need to reset the states
-        self.reset_workflow_temporary_states(workflow)
-
-        self._check_too_many_errors(workflow)
-
-        self._clear_old_history(workflow)
-
-    def _clear_old_history(self, workflow: AutomationWorkflow) -> None:
-        """
-        Clear any old history entries related to the workflow.
-
-        It will delete any history entries that are older than MAX_HISTORY_DAYS and only
-        keep the most recent MAX_HISTORY_ENTRIES entries.
-        """
-
-        oldest_history_date = timezone.now() - timedelta(
-            days=settings.AUTOMATION_WORKFLOW_HISTORY_MAX_DAYS
-        )
-        workflow.workflow_histories.filter(started_on__lt=oldest_history_date).delete()
-
-        history_ids_to_keep = list(
-            workflow.workflow_histories.order_by("-started_on").values_list(
-                "id", flat=True
-            )[: settings.AUTOMATION_WORKFLOW_HISTORY_MAX_ENTRIES]
-        )
-        workflow.workflow_histories.exclude(id__in=history_ids_to_keep).delete()
-
-    def _get_rate_limit_cache_key(self, workflow_id: int) -> str:
-        return WORKFLOW_RATE_LIMIT_CACHE_PREFIX.format(workflow_id)
-
-    def _get_workflow_history_rate_limit_cache_key(self, workflow_id: int) -> str:
-        return WORKFLOW_HISTORY_RATE_LIMIT_CACHE_PREFIX.format(workflow_id)
-
-    def _should_create_rate_limited_workflow_history(self, workflow_id: int) -> bool:
-        """
-        Checks if the workflow history should be created when rate limited.
-
-        Returns True if the history should be created, False otherwise.
-        """
-
-        cache_key = self._get_workflow_history_rate_limit_cache_key(workflow_id)
-
-        should_create_history = False
-
-        def _should_create_history(history_exists):
-            """
-            Sets should_create_history to True if this is the first time
-            we're checking the workflow history in this window.
-
-            Returns True because we always want to set the cache key
-            when update() is called.
-            """
-
-            if not history_exists:
-                nonlocal should_create_history
-                should_create_history = True
-            return True
-
-        global_cache.update(
-            cache_key,
-            callback=_should_create_history,
-            default_value=lambda: False,
-            timeout=settings.AUTOMATION_WORKFLOW_HISTORY_RATE_LIMIT_CACHE_EXPIRY_SECONDS,
-        )
-
-        return should_create_history
-
-    def _check_is_rate_limited(self, workflow_id: int) -> None:
-        """Uses a global cache key to track recent runs for the given workflow."""
-
-        expiry_seconds = settings.AUTOMATION_WORKFLOW_RATE_LIMIT_CACHE_EXPIRY_SECONDS
-        cache_key = self._get_rate_limit_cache_key(workflow_id)
-
-        global_cache.update(
-            cache_key,
-            self._check_is_rate_limited_value,
-            default_value=lambda: [],
-            timeout=expiry_seconds,
-        )
-
-    def _check_is_rate_limited_value(self, data: List[datetime]) -> List[datetime]:
-        """
-        Given a list of recent workflow run timestamps, determines whether
-        the workflow run should be rate limited. If so, raises the
-        AutomationWorkflowRateLimited error.
-        """
-
-        now = timezone.now()
-        expiry_seconds = settings.AUTOMATION_WORKFLOW_RATE_LIMIT_CACHE_EXPIRY_SECONDS
-        start_window = now - timedelta(seconds=expiry_seconds)
-
-        # Check the number of past runs that are in the window
-        runs_in_window = [
-            timestamp
-            for timestamp in data
-            if isinstance(timestamp, datetime) and timestamp > start_window
-        ]
-
-        if len(runs_in_window) >= settings.AUTOMATION_WORKFLOW_RATE_LIMIT_MAX_RUNS:
-            raise AutomationWorkflowRateLimited(
-                "The workflow was rate limited due to too many recent runs."
-            )
-
-        runs_in_window.append(now)
-
-        return runs_in_window
-
-    def _check_too_many_errors(self, workflow: AutomationWorkflow) -> None:
-        """
-        Checks if the given workflow has too many consecutive errors. If so,
-        raises AutomationWorkflowTooManyErrors.
-        """
-
-        max_errors = settings.AUTOMATION_WORKFLOW_MAX_CONSECUTIVE_ERRORS
-
-        statuses = (
-            AutomationWorkflowHistory.objects.filter(workflow=workflow)
-            .order_by("-started_on")
-            # +1 because we will ignore the latest entry, since the workflow may
-            # have just started.
-            .values_list("status", flat=True)[: max_errors + 1]
-        )
-
-        # Ignore the latest status if it is 'started'
-        if statuses and statuses[0] == HistoryStatusChoices.STARTED:
-            statuses = statuses[1:]
-
-        # Not enough history to exceed threshold
-        if len(statuses) < max_errors:
-            return
-
-        if all(status == HistoryStatusChoices.ERROR for status in statuses):
-            raise AutomationWorkflowTooManyErrors(
-                f"The workflow {workflow.id} was disabled due to too "
-                "many consecutive errors."
-            )
 
     def disable_workflow(self, workflow: AutomationWorkflow) -> None:
         """
-        Disable the provided workflow, as well as the original workflow if it exists.
+        Disable the provided workflow, as well as the original workflow.
         """
 
-        workflow_ids = {workflow.id}
-        if original_workflow := self.get_original_workflow(workflow):
-            workflow_ids.add(original_workflow.id)
+        original_workflow = workflow.get_original()
 
-        AutomationWorkflow.objects.filter(id__in=workflow_ids).update(
-            state=WorkflowState.DISABLED
-        )
+        # The two workflows are always different because we call it only for published
+        # workflows
+        workflow.state = WorkflowState.DISABLED
+        workflow.save(update_fields=["state"])
+        original_workflow.state = WorkflowState.DISABLED
+        original_workflow.save(update_fields=["state"])
+
+        automation_workflow_updated.send(self, user=None, workflow=original_workflow)
 
     def set_workflow_temporary_states(self, workflow, simulate_until_node=None):
         """
@@ -881,40 +730,6 @@ class AutomationWorkflowHandler(metaclass=baserow_trace_methods(tracer)):
         if fields_to_save:
             workflow.save(update_fields=fields_to_save)
             automation_workflow_updated.send(self, user=None, workflow=workflow)
-
-    def async_start_workflow(
-        self,
-        workflow: AutomationWorkflow,
-        event_payload: Optional[List[Dict]] = None,
-    ) -> None:
-        """
-        Runs the provided workflow in a celery task.
-
-        :param workflow: The AutomationWorkflow ID that should be executed.
-        :param event_payload: The payload from the action.
-        """
-
-        try:
-            self._check_is_rate_limited(workflow.id)
-        except AutomationWorkflowRateLimited as e:
-            if self._should_create_rate_limited_workflow_history(workflow.id):
-                original_workflow = self.get_original_workflow(workflow)
-                now = timezone.now()
-                AutomationHistoryHandler().create_workflow_history(
-                    original_workflow,
-                    is_test_run=original_workflow == workflow,
-                    started_on=now,
-                    completed_on=now,
-                    message=str(e),
-                    status=HistoryStatusChoices.ERROR,
-                )
-            return
-
-        start_workflow_celery_task.delay(
-            workflow.id,
-            event_payload,
-            simulate_until_node_id=workflow.simulate_until_node_id,
-        )
 
     def toggle_test_run(
         self, workflow: AutomationWorkflow, simulate_until_node: bool = None
@@ -968,28 +783,254 @@ class AutomationWorkflowHandler(metaclass=baserow_trace_methods(tracer)):
                 # except if we are updating the trigger sample data by itself
                 self.async_start_workflow(workflow)
 
-    def start_workflow(
+    def _clear_old_history(self, original_workflow: AutomationWorkflow) -> None:
+        """
+        Clear any old history entries related to the workflow.
+
+        It will delete any history entries that are older than MAX_HISTORY_DAYS and only
+        keep the most recent MAX_HISTORY_ENTRIES entries.
+        """
+
+        oldest_history_date = timezone.now() - timedelta(
+            days=settings.AUTOMATION_WORKFLOW_HISTORY_MAX_DAYS
+        )
+        original_workflow.workflow_histories.exclude(
+            status=HistoryStatusChoices.STARTED
+        ).filter(started_on__lt=oldest_history_date).delete()
+
+        history_ids_to_keep = list(
+            original_workflow.workflow_histories.order_by("-started_on").values_list(
+                "id", flat=True
+            )[: settings.AUTOMATION_WORKFLOW_HISTORY_MAX_ENTRIES]
+        )
+        original_workflow.workflow_histories.exclude(
+            status=HistoryStatusChoices.STARTED
+        ).exclude(id__in=history_ids_to_keep).delete()
+
+    def _mark_failure_for_timed_out_history(
+        self, original_workflow: AutomationWorkflow
+    ) -> None:
+        """
+        If an history entry is still not finished after a certain duration, this execution
+        is marked as failed.
+        """
+
+        max_history_date = timezone.now() - timedelta(
+            hours=settings.AUTOMATION_WORKFLOW_TIMEOUT_HOURS
+        )
+        original_workflow.workflow_histories.filter(
+            status=HistoryStatusChoices.STARTED, started_on__lt=max_history_date
+        ).update(
+            status=HistoryStatusChoices.ERROR,
+            message="This workflow took too long and was timed out.",
+        )
+
+    def _get_rate_limit_cache_key(self, original_workflow: AutomationWorkflow) -> str:
+        return WORKFLOW_RATE_LIMIT_CACHE_PREFIX.format(original_workflow.id)
+
+    def _get_workflow_history_rate_limit_cache_key(
+        self, original_workflow: AutomationWorkflow
+    ) -> str:
+        return WORKFLOW_HISTORY_RATE_LIMIT_CACHE_PREFIX.format(original_workflow.id)
+
+    def _get_histories_for_current_workflow_version(self, workflow: AutomationWorkflow):
+        histories = AutomationHistoryHandler().get_workflow_histories(
+            workflow.get_original()
+        )
+
+        if workflow != workflow.get_original():
+            histories = histories.filter(started_on__gte=workflow.created_on)
+
+        return histories
+
+    def _check_is_rate_limited(self, workflow: AutomationWorkflow) -> bool:
+        """Uses a global cache key to track recent runs for the given workflow."""
+
+        original_workflow = workflow.get_original()
+
+        cache_key = self._get_rate_limit_cache_key(original_workflow)
+        rate_cache_timeout = (
+            settings.AUTOMATION_WORKFLOW_RATE_LIMIT_CACHE_EXPIRY_SECONDS
+        )
+
+        now = timezone.now()
+
+        def update_last_run_cache(previous_last_runs):
+            """
+            Given a list of recent workflow run timestamps, determines whether
+            the workflow run should be rate limited. If so, raises the
+            AutomationWorkflowRateLimited error.
+            """
+            start_window = now - timedelta(
+                seconds=settings.AUTOMATION_WORKFLOW_RATE_LIMIT_CACHE_EXPIRY_SECONDS
+            )
+
+            # Keep only past runs that are in the window
+            runs_in_window = [
+                timestamp
+                for timestamp in previous_last_runs
+                if isinstance(timestamp, datetime) and timestamp > start_window
+            ]
+
+            runs_in_window.append(now)
+
+            return runs_in_window
+
+        runs_in_window = global_cache.update(
+            cache_key,
+            update_last_run_cache,
+            default_value=lambda: [],
+            timeout=rate_cache_timeout,
+        )
+
+        if len(runs_in_window) > settings.AUTOMATION_WORKFLOW_RATE_LIMIT_MAX_RUNS:
+            return True
+
+        started_workflows = (
+            self._get_histories_for_current_workflow_version(workflow)
+            .filter(status=HistoryStatusChoices.STARTED)
+            .count()
+        )
+
+        if started_workflows > settings.AUTOMATION_WORKFLOW_RATE_LIMIT_MAX_RUNS:
+            return True
+
+        return False
+
+    def _check_too_many_errors(self, workflow: AutomationWorkflow) -> bool:
+        """
+        Checks if the given workflow has too many consecutive errors. If so,
+        raises AutomationWorkflowTooManyErrors.
+        """
+
+        original_workflow = workflow.get_original()
+
+        if original_workflow == workflow:
+            # We don't want to rate limit a test execution or a simulation
+            return False
+
+        max_errors = settings.AUTOMATION_WORKFLOW_MAX_CONSECUTIVE_ERRORS
+
+        statuses = (
+            self._get_histories_for_current_workflow_version(workflow)
+            .exclude(status=HistoryStatusChoices.STARTED)
+            .order_by("-started_on")
+            .values_list("status", flat=True)[: max_errors + 1]
+        )
+
+        return (
+            len([s for s in statuses if s == HistoryStatusChoices.ERROR]) > max_errors
+        )
+
+    def before_run(self, workflow: AutomationWorkflow) -> None:
+        """
+        Runs pre-flight checks  and actions before a workflow is allowed to run.
+
+        Each check may raise a subclass of the AutomationWorkflowBeforeRunError error.
+        """
+
+        original_workflow = workflow.get_original()
+
+        # If we don't come from an event, we need to reset the states to prevent
+        # another execution
+        self.reset_workflow_temporary_states(original_workflow)
+
+        # If we have history entries that are too old it probably means something
+        # went wrong with Celery so we mark these entries as failed.
+        self._mark_failure_for_timed_out_history(original_workflow)
+
+        # We remove old history entries to avoid storing too many entries.
+        self._clear_old_history(original_workflow)
+
+        if self._check_too_many_errors(workflow):
+            raise AutomationWorkflowTooManyErrors(
+                "The workflow was disabled due to too many consecutive errors."
+            )
+
+        if self._check_is_rate_limited(workflow):
+            # Early return if we had too many execution during a short amount of time
+            raise AutomationWorkflowRateLimited(
+                "The workflow was rate limited due to too many recent or unfinished "
+                "runs."
+            )
+
+    def async_start_workflow(
         self,
         workflow: AutomationWorkflow,
-        event_payload: Optional[Union[Dict, List[Dict]]],
-        simulate_until_node_id: Optional[int] = None,
+        event_payload: Optional[List[Dict]] = None,
     ) -> None:
-        """Runs the workflow."""
+        """
+        Runs the provided workflow in a celery task.
 
-        original_workflow = self.get_original_workflow(workflow)
+        :param workflow: The AutomationWorkflow ID that should be executed.
+        :param event_payload: The payload from the action.
+        """
+
+        error = None
+        history_status = HistoryStatusChoices.ERROR
+        create_history_entry = True
+
+        original_workflow = workflow.get_original()
+
+        simulate_until_node = (
+            workflow.get_graph().get_node(workflow.simulate_until_node_id)
+            if workflow.simulate_until_node_id
+            else None
+        )
+
+        try:
+            self.before_run(workflow)
+        except AutomationWorkflowRateLimited as e:
+            history_cache_timeout = (
+                settings.AUTOMATION_WORKFLOW_HISTORY_RATE_LIMIT_CACHE_EXPIRY_SECONDS
+            )
+            history_cache_key = self._get_workflow_history_rate_limit_cache_key(
+                original_workflow
+            )
+
+            error = str(e)
+            # We create an history entry only if we don't have a value in the cache
+            # It limits the number of created history entry to one every
+            # AUTOMATION_WORKFLOW_HISTORY_RATE_LIMIT_CACHE_EXPIRY_SECONDS seconds
+            if global_cache.get(
+                history_cache_key, default=True, timeout=history_cache_timeout
+            ):
+                # Set the value to prevent next executions
+                global_cache.update(
+                    history_cache_key,
+                    lambda v: False,
+                    timeout=history_cache_timeout,
+                )
+            else:
+                create_history_entry = False
+        except AutomationWorkflowTooManyErrors as e:
+            error = str(e)
+            history_status = HistoryStatusChoices.DISABLED
+            self.disable_workflow(workflow)
+        except AutomationWorkflowBeforeRunError as e:
+            error = str(e)
+        except Exception as e:
+            error = f"Unknown exception: {str(e)}"
+
+        if error:
+            if create_history_entry and simulate_until_node is None:
+                now = timezone.now()
+
+                AutomationHistoryHandler().create_workflow_history(
+                    original_workflow,
+                    is_test_run=original_workflow == workflow,
+                    started_on=now,
+                    completed_on=now,
+                    message=error,
+                    status=history_status,
+                )
+            return
 
         # If the currently running workflow is an unpublished workflow then we are
         # testing it.
         is_test_run = original_workflow == workflow
 
-        simulate_until_node = (
-            workflow.get_graph().get_node(simulate_until_node_id)
-            if simulate_until_node_id
-            else None
-        )
-
-        history_handler = AutomationHistoryHandler()
-        history = history_handler.create_workflow_history(
+        history = AutomationHistoryHandler().create_workflow_history(
             original_workflow,
             started_on=timezone.now(),
             is_test_run=is_test_run,
@@ -997,25 +1038,16 @@ class AutomationWorkflowHandler(metaclass=baserow_trace_methods(tracer)):
             simulate_until_node=simulate_until_node,
         )
 
-        error: Optional[str] = None
-        history_status: Optional[HistoryStatusChoices] = None
+        transaction.on_commit(
+            lambda: start_workflow_celery_task.delay(workflow.id, history.id)
+        )
 
-        try:
-            self.before_run(original_workflow)
-        except AutomationWorkflowTooManyErrors as e:
-            error = str(e)
-            history_status = HistoryStatusChoices.DISABLED
-            self.disable_workflow(workflow)
-        except AutomationWorkflowBeforeRunError as e:
-            error = str(e)
-            history_status = HistoryStatusChoices.ERROR
-
-        if error is not None and history_status is not None:
-            history.completed_on = timezone.now()
-            history.message = error
-            history.status = history_status
-            history.save()
-            return
+    def start_workflow(
+        self,
+        workflow: AutomationWorkflow,
+        history: AutomationWorkflowHistory,
+    ) -> Signature:
+        """Runs the workflow."""
 
         return chain(
             dispatch_node_celery_task.si(
@@ -1023,7 +1055,7 @@ class AutomationWorkflowHandler(metaclass=baserow_trace_methods(tracer)):
                 history.id,
             ),
             handle_workflow_dispatch_done.si(
-                history_id=history.id if not simulate_until_node_id else None,
-                simulate_until_node_id=simulate_until_node_id,
+                history_id=history.id,
+                simulate_until_node_id=history.simulate_until_node_id,
             ),
         )

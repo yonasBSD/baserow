@@ -396,10 +396,6 @@ class AutomationNodeHandler(metaclass=baserow_trace_methods(tracer)):
             dispatch, otherwise returns None.
         """
 
-        from baserow.contrib.automation.workflows.handler import (
-            AutomationWorkflowHandler,
-        )
-
         history_handler = AutomationHistoryHandler()
 
         try:
@@ -450,9 +446,8 @@ class AutomationNodeHandler(metaclass=baserow_trace_methods(tracer)):
             self._handle_workflow_error(node_history, error)
             return None
         except Exception as e:
-            original_workflow = AutomationWorkflowHandler().get_original_workflow(
-                node.workflow
-            )
+            original_workflow = node.workflow.get_original()
+
             error = (
                 f"Unexpected error while running workflow {original_workflow.id}. "
                 f"Error: {str(e)}"
@@ -467,12 +462,6 @@ class AutomationNodeHandler(metaclass=baserow_trace_methods(tracer)):
             # Use the normalized iteration index from the context.
             iteration_index = dispatch_context.current_iterations[parent_nodes[-1].id]
 
-        history_handler.create_node_result(
-            node_history=node_history,
-            result=dispatch_result.data,
-            iteration=iteration_index,
-        )
-
         # Return early if this is a simulation as we've reached the
         # simulated node.
         if until_node := simulate_until_node:
@@ -480,6 +469,12 @@ class AutomationNodeHandler(metaclass=baserow_trace_methods(tracer)):
                 until_node.service.specific.refresh_from_db(fields=["sample_data"])
                 automation_node_updated.send(self, user=None, node=until_node)
                 return None
+
+        history_handler.create_node_result(
+            node_history=node_history,
+            result=dispatch_result.data,
+            iteration=iteration_index,
+        )
 
         to_chain = []
         if children := node.get_children():
