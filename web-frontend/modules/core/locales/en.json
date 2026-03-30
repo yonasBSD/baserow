@@ -844,9 +844,14 @@
   },
   "formulaInputField": {
     "errorInvalidFormula": "The formula is invalid.",
-    "advancedFormulaMode": "Advanced formula mode"
+    "advancedFormulaMode": "Advanced formula mode",
+    "invalidFormulaTitle": "Invalid formula",
+    "invalidSyntax": "Not a valid expert formula, please check the syntax."
   },
-  "formulaInputContext": {
+  "formulaInputErrorContext": {
+    "viewFullError": "View full error"
+  },
+  "formulaInputExplorerContext": {
     "variables": "Variables",
     "functions": "Functions",
     "operators": "Operators",
@@ -857,6 +862,11 @@
     "useAdvancedInput": "Switch to expert mode",
     "useAdvancedInputModalTitle": "Switch to expert mode?",
     "modalMessage": "Switching to a different mode will clear the current formula. Are you sure you want to continue?"
+  },
+  "formulaParserErrors": {
+    "invalidArgCountMin": "The '{funcType}' function expects a minimum of {minArgs} arguments.",
+    "invalidArgCountExact": "The '{funcType}' function expects exactly {minArgs} arguments.",
+    "invalidArgCountRange": "The '{funcType}' function expects between {minArgs} and {maxArgs} arguments."
   },
   "dataExplorer": {
     "noMatchingNodesText": "No matching results were found.",
