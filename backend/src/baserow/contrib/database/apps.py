@@ -848,11 +848,13 @@ class DatabaseConfig(AppConfig):
             DuplicateViewOperationType,
             ListAggregationsViewOperationType,
             ListViewDecorationOperationType,
+            ListViewFieldsOperationType,
             ListViewFilterOperationType,
             ListViewGroupByOperationType,
             ListViewsOperationType,
             ListViewSortOperationType,
             OrderViewsOperationType,
+            ReadAdjacentViewRowOperationType,
             ReadAggregationsViewOperationType,
             ReadViewDecorationOperationType,
             ReadViewFieldOptionsOperationType,
@@ -884,6 +886,8 @@ class DatabaseConfig(AppConfig):
         )
 
         operation_type_registry.register(ReadViewRowOperationType())
+        operation_type_registry.register(ReadAdjacentViewRowOperationType())
+        operation_type_registry.register(ListViewFieldsOperationType())
         operation_type_registry.register(CreateViewRowOperationType())
         operation_type_registry.register(UpdateViewRowOperationType())
         operation_type_registry.register(DeleteViewRowOperationType())

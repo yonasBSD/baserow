@@ -844,6 +844,15 @@ class RowHandler(metaclass=baserow_trace_methods(tracer)):
         if not values:
             values = {}
 
+        # Map user field names to internal field keys before permission checks
+        # so that hidden-field and write-permission checks can identify field IDs.
+        if user_field_names:
+            values = self.map_user_field_name_dict_to_internal(
+                model._field_objects, values
+            )
+            user_field_names = False
+
+        self._raise_if_values_contain_hidden_fields(user, view, [values])
         self._check_write_fields_values_permissions(user, model, [values])
 
         return self.force_create_row(
@@ -1133,6 +1142,7 @@ class RowHandler(metaclass=baserow_trace_methods(tracer)):
                 updated_fields_by_name[field["name"]] = field["field"]
                 updated_fields.append(field["field"])
 
+        self._raise_if_values_contain_hidden_fields(user, view, [values])
         self._check_write_fields_values_permissions(user, model, [values])
 
         rows = [row]
@@ -1546,6 +1556,7 @@ class RowHandler(metaclass=baserow_trace_methods(tracer)):
         if model is None:
             model = table.get_model()
 
+        self._raise_if_values_contain_hidden_fields(user, view, rows_values)
         self._check_write_fields_values_permissions(user, model, rows_values)
 
         return self.force_create_rows(
@@ -2160,6 +2171,34 @@ class RowHandler(metaclass=baserow_trace_methods(tracer)):
             )
         return unwritable_fields
 
+    def _raise_if_values_contain_hidden_fields(
+        self,
+        user: AbstractUser,
+        view: Optional["View"],
+        rows_values: List[Dict[str, Any]],
+    ) -> None:
+        """
+        Prevents editors from writing to fields they can't see. Without this,
+        an editor on a restricted view could modify hidden cell values by
+        including them in the request body.
+
+        :param rows_values: A list of dicts. The hidden field IDs are resolved once and
+            then checked against all provided dicts.
+        """
+
+        if view is None or not rows_values:
+            return
+        ownership_type = view_ownership_type_registry.get(view.ownership_type)
+        hidden_ids = ownership_type.get_hidden_field_ids_for_user(user, view)
+        if not hidden_ids:
+            return
+
+        for row_values in rows_values:
+            for key in row_values.keys():
+                field_id = get_field_id_from_field_key(key)
+                if field_id is not None and field_id in hidden_ids:
+                    raise PermissionDenied()
+
     def force_update_rows(
         self,
         user: AbstractUser,
@@ -2585,6 +2624,7 @@ class RowHandler(metaclass=baserow_trace_methods(tracer)):
         if model is None:
             model = table.get_model()
 
+        self._raise_if_values_contain_hidden_fields(user, view, rows_values)
         self._check_write_fields_values_permissions(user, model, rows_values)
 
         return self.force_update_rows(

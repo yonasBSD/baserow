@@ -165,11 +165,13 @@ from baserow.contrib.database.views.operations import (
     DuplicateViewOperationType,
     ListAggregationsViewOperationType,
     ListViewDecorationOperationType,
+    ListViewFieldsOperationType,
     ListViewFilterOperationType,
     ListViewGroupByOperationType,
     ListViewsOperationType,
     ListViewSortOperationType,
     OrderViewsOperationType,
+    ReadAdjacentViewRowOperationType,
     ReadAggregationsViewOperationType,
     ReadViewDecorationOperationType,
     ReadViewFieldOptionsOperationType,
@@ -350,20 +352,15 @@ default_roles[READ_ONLY_ROLE_UID].extend(
         ListTablesDatabaseTableOperationType,
         ReadApplicationOperationType,
         ReadDatabaseTableOperationType,
-        ListRowsDatabaseTableOperationType,
         ReadViewOperationType,
-        ReadFieldOperationType,
         ListViewSortOperationType,
         ReadViewFieldOptionsOperationType,
         ReadViewDecorationOperationType,
         ListViewDecorationOperationType,
         ListViewFilterOperationType,
         ListViewsOperationType,
-        ListFieldsOperationType,
         ListAggregationsViewOperationType,
         ReadAggregationsViewOperationType,
-        ReadAdjacentRowDatabaseRowOperationType,
-        ListRowNamesDatabaseTableOperationType,
         ReadViewFilterOperationType,
         ReadViewsOrderOperationType,
         ReadViewSortOperationType,
@@ -376,11 +373,14 @@ default_roles[READ_ONLY_ROLE_UID].extend(
         ListWidgetsOperationType,
         ListDashboardDataSourcesOperationType,
         ReadDashboardDataSourceOperationType,
+        ListRowsDatabaseTableOperationType,
     ]
 )
 default_roles[VIEWER_ROLE_UID].extend(
     default_roles[READ_ONLY_ROLE_UID]
     + [
+        ListFieldsOperationType,
+        ReadFieldOperationType,
         ListenToAllRestrictedViewEventsOperationType,
         ListenToAllDatabaseTableEventsOperationType,
         ReadMCPEndpointOperationType,
@@ -393,6 +393,10 @@ default_roles[VIEWER_ROLE_UID].extend(
         DispatchDashboardDataSourceOperationType,
         ReadDatabaseRowOperationType,
         ReadViewRowOperationType,
+        ListViewFieldsOperationType,
+        ReadAdjacentRowDatabaseRowOperationType,
+        ReadAdjacentViewRowOperationType,
+        ListRowNamesDatabaseTableOperationType,
     ]
 )
 default_roles[COMMENTER_ROLE_UID].extend(
