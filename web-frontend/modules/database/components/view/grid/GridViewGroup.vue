@@ -2,7 +2,12 @@
   <div class="grid-view__group" v-bind="$attrs">
     <div class="grid-view__group-cell">
       <div class="grid-view__group-value">
-        <component :is="groupByComponent" :field="field" :value="value" />
+        <component
+          :is="groupByComponent"
+          v-if="groupByComponent"
+          :field="field"
+          :value="value"
+        />
       </div>
       <div v-if="count > 0" class="grid-view__group-count">
         {{ count }}
@@ -19,8 +24,8 @@ export default {
       type: Object,
       required: true,
     },
-    field: {
-      type: Object,
+    allFieldsInTable: {
+      type: Array,
       required: true,
     },
     value: {
@@ -33,9 +38,24 @@ export default {
     },
   },
   computed: {
+    field() {
+      return this.getField(this.allFieldsInTable, this.groupBy)
+    },
     groupByComponent() {
-      const fieldType = this.$registry.get('field', this.field.type)
-      return fieldType.getGroupByComponent(this.field)
+      if (!this.field) {
+        return null
+      }
+      return this.getGroupByComponent(this.field, this)
+    },
+  },
+  methods: {
+    getField(allFieldsInTable, groupBy) {
+      const field = allFieldsInTable.find((f) => f.id === groupBy.field)
+      return field
+    },
+    getGroupByComponent(field, parent) {
+      const fieldType = parent.$registry.get('field', field.type)
+      return fieldType.getGroupByComponent(field)
     },
   },
 }

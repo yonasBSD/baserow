@@ -75,6 +75,7 @@
           ></GridViewPlaceholder>
           <GridViewGroups
             v-if="includeGroupBy && activeGroupBys.length > 0"
+            :all-fields-in-table="allFieldsInTable"
             :group-by-value-sets="groupByValueSets"
             :store-prefix="storePrefix"
           ></GridViewGroups>
@@ -422,7 +423,12 @@ export default {
               return false
             }
             return groupBys.slice(0, groupByIndex + 1).every((groupBy) => {
-              const groupByField = this.getGroupByField(groupBy)
+              const groupByField = this.allFieldsInTable.find(
+                (f) => f.id === groupBy.field
+              )
+              if (!groupByField) {
+                return false
+              }
               const groupByFieldType = this.$registry.get(
                 'field',
                 groupByField.type
@@ -444,9 +450,10 @@ export default {
               (metadata[`field_${groupBy.field}`] || []).find((entry) => {
                 const groupByFields = groupBys
                   .slice(0, groupByIndex + 1)
-                  .map((groupBy) => {
-                    return this.getGroupByField(groupBy)
-                  })
+                  .map((groupBy) =>
+                    this.allFieldsInTable.find((f) => f.id === groupBy.field)
+                  )
+                  .filter(Boolean)
                 return fieldValuesAreEqualInObjects(
                   groupByFields,
                   this.$registry,

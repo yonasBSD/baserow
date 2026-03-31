@@ -1,12 +1,13 @@
 <template>
   <div class="grid-view__head">
     <div
-      v-for="{ groupBy, field } in activeGroupBysWithFields"
+      v-for="groupBy in includeGroupBy ? activeGroupBys : []"
       :key="'field-group-' + groupBy.field"
       class="grid-view__head-group"
       :style="{ width: groupBy.width + 'px' }"
+      :set="field = $options.methods.getField(allFieldsInTable, groupBy)"
     >
-      <div class="grid-view__group-cell">
+      <div v-if="field" class="grid-view__group-cell">
         <div class="grid-view__group-name">
           {{ field.name }}
         </div>
@@ -150,15 +151,6 @@ export default {
     },
   },
   emits: ['dragging', 'field-created', 'refresh'],
-  computed: {
-    activeGroupBysWithFields() {
-      if (!this.includeGroupBy) return []
-      return this.activeGroupBys.map((groupBy) => ({
-        groupBy,
-        field: this.getGroupByField(groupBy),
-      }))
-    },
-  },
   methods: {
     /**
      * After newField is created pressing "insert left" or "insert right" button,
@@ -171,6 +163,7 @@ export default {
       newField,
       fromField,
       undoRedoActionGroupId = null,
+      visible = null,
     }) {
       try {
         await this.$store.dispatch(
@@ -181,6 +174,7 @@ export default {
             fromField,
             undoRedoActionGroupId,
             readOnly: this.readOnly,
+            visible,
           }
         )
       } catch (error) {
@@ -199,6 +193,10 @@ export default {
     },
     onShownCreateFieldContext() {
       this.$refs.createFieldContext.showFieldTypesDropdown(this.$el)
+    },
+    getField(allFieldsInTable, groupBy) {
+      const field = allFieldsInTable.find((f) => f.id === groupBy.field)
+      return field
     },
   },
 }
