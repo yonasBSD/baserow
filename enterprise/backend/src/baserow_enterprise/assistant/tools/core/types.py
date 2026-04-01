@@ -14,6 +14,10 @@ class BuilderItemCreate(BaseModel):
 
     name: str = Field(...)
     type: Literal["database", "application", "automation", "dashboard"] = Field(...)
+    theme: str | None = Field(
+        default=None,
+        description="Theme to apply (applications only).",
+    )
 
     def get_orm_type(self) -> str:
         """Returns the corresponding ORM type for the builder."""
@@ -83,6 +87,9 @@ class ApplicationItemCreate(BuilderItemCreate):
             builder_orm_instance,
             name="Local Baserow",
         )
+        from baserow_enterprise.assistant.tools.builder.themes import apply_theme
+
+        apply_theme(builder_orm_instance, self.theme or "baserow", user=user)
 
 
 class ApplicationItem(ApplicationItemCreate):
