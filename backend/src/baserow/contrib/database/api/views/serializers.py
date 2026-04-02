@@ -11,6 +11,9 @@ from rest_framework import serializers
 from baserow.api.utils import serialize_validation_errors_recursive
 from baserow.contrib.database.api.constants import PUBLIC_PLACEHOLDER_ENTITY_ID
 from baserow.contrib.database.api.fields.serializers import FieldSerializer
+from baserow.contrib.database.api.tables.serializers import (
+    TableWithoutDataSyncSerializer,
+)
 from baserow.contrib.database.fields.field_filters import (
     FILTER_TYPE_AND,
     FILTER_TYPE_OR,
@@ -34,8 +37,10 @@ from baserow.contrib.database.views.registries import (
     view_ownership_type_registry,
     view_type_registry,
 )
+from baserow.contrib.database.views.view_ownership_types import (
+    CollaborativeViewOwnershipType,
+)
 
-from ..tables.serializers import TableWithoutDataSyncSerializer
 from .exceptions import FiltersParamValidationException
 
 
@@ -614,6 +619,7 @@ class PublicViewSerializer(serializers.ModelSerializer):
     sortings = serializers.SerializerMethodField()
     group_bys = serializers.SerializerMethodField()
     show_logo = serializers.BooleanField(required=False)
+    ownership_type = serializers.SerializerMethodField()
 
     @extend_schema_field(PublicViewSortSerializer(many=True))
     def get_sortings(self, instance):
@@ -641,6 +647,13 @@ class PublicViewSerializer(serializers.ModelSerializer):
     def get_type(self, instance):
         return view_type_registry.get_by_model(instance.specific_class).type
 
+    @extend_schema_field(OpenApiTypes.STR)
+    def get_ownership_type(self, instance):
+        # The publicly shared view does not need to know which view ownership type is
+        # publicly shared. However, it does need to have this value in order to work
+        # correctly, so we can always expose the collaborative type.
+        return CollaborativeViewOwnershipType.type
+
     class Meta:
         model = View
         fields = (
@@ -655,6 +668,7 @@ class PublicViewSerializer(serializers.ModelSerializer):
             "slug",
             "show_logo",
             "allow_public_export",
+            "ownership_type",
         )
         extra_kwargs = {
             "id": {"read_only": True},
