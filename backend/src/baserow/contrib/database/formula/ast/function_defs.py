@@ -76,6 +76,7 @@ from baserow.contrib.database.formula.ast.tree import (
     BaserowExpressionContext,
     BaserowFunctionCall,
     BaserowIntegerLiteral,
+    BaserowStringLiteral,
 )
 from baserow.contrib.database.formula.expression_generator.django_expressions import (
     AndExpr,
@@ -84,6 +85,7 @@ from baserow.contrib.database.formula.expression_generator.django_expressions im
     GreaterThanExpr,
     GreaterThanOrEqualExpr,
     IsNullExpr,
+    JSONBArrayGetElement,
     JSONBArrayJoinValues,
     JSONBArraySlice,
     JSONBArrayUniqueByValue,
@@ -265,6 +267,8 @@ def register_formula_functions(registry):
     registry.register(BaserowArrayLength())
     registry.register(BaserowArrayJoinValues())
     registry.register(BaserowArraySlice())
+    registry.register(BaserowFirst())
+    registry.register(BaserowLast())
     # ManyToMany functions
     registry.register(BaserowStringAggManyToManyValues())
     registry.register(BaserowManyToManyCount())
@@ -2607,6 +2611,45 @@ class BaserowArraySlice(ThreeArgumentBaserowFunction):
         )
 
 
+class BaserowIndexShortcut(OneArgumentBaserowFunction):
+    arg_type = [BaserowFormulaValidType]
+    _index: int
+
+    def type_function(
+        self,
+        func_call: BaserowFunctionCall[UnTyped],
+        arg: BaserowExpression[BaserowFormulaValidType],
+    ) -> BaserowExpression[BaserowFormulaType]:
+        if arg.many:
+            arg = arg.expression_type.collapse_many(arg)
+
+        if not isinstance(arg.expression_type, BaserowFormulaArrayType):
+            return func_call.with_invalid_type(f"{self.type} requires an array input.")
+
+        from baserow.contrib.database.formula.registries import (
+            formula_function_registry,
+        )
+
+        num_type = BaserowFormulaNumberType(0)
+        index_func = formula_function_registry.get("index")
+        return index_func.call_and_type_with_args(
+            [arg, BaserowIntegerLiteral(self._index, num_type)]
+        )
+
+    def to_django_expression(self, arg: Expression) -> Expression:
+        raise NotImplementedError("type_function delegates to index")
+
+
+class BaserowFirst(BaserowIndexShortcut):
+    type = "first"
+    _index = 0
+
+
+class BaserowLast(BaserowIndexShortcut):
+    type = "last"
+    _index = -1
+
+
 class BaserowArrayLength(OneArgumentBaserowFunction):
     type = "array_length"
     arg_type = [BaserowFormulaArrayType]
@@ -2979,36 +3022,105 @@ class BaserowGetSingleSelectValue(OneArgumentBaserowFunction):
         )
 
 
-class BaserowIndex(TwoArgumentBaserowFunction):
-    arg1_type = [BaserowFormulaArrayType]
-    arg2_type = [BaserowFormulaNumberType]
+def _index_output_field(mode):
+    """Return a fresh Django output_field for the given extraction mode."""
 
-    type = "index"
+    from baserow.contrib.database.formula.types.formula_types import (
+        _lookup_formula_type_from_string,
+    )
 
-    def type_function(
-        self,
-        func_call: BaserowFunctionCall[UnTyped],
-        arg1: BaserowExpression[BaserowFormulaValidType],
-        arg2: BaserowExpression[BaserowFormulaValidType],
-    ) -> BaserowExpression[BaserowFormulaType]:
-        if not isinstance(arg1.expression_type.sub_type, BaserowFormulaSingleFileType):
-            return func_call.with_invalid_type(
-                "index only currently supports indexing file fields."
-            )
+    try:
+        return _lookup_formula_type_from_string(mode).output_field_class()
+    except Exception:
+        return fields.TextField()
+
+
+def _unwrap_literal_value(django_expr):
+    """
+    Extract the Python value from a Django expression that wraps a
+    ``Value(...)`` — e.g. ``Cast(Value('x'), TextField())``.
+    """
+
+    while not hasattr(django_expr, "value"):
+        if (
+            hasattr(django_expr, "source_expressions")
+            and django_expr.source_expressions
+        ):
+            django_expr = django_expr.source_expressions[0]
         else:
-            if arg1.many:
-                arg1 = arg1.expression_type.collapse_many(arg1)
-            return func_call.with_args([arg1, arg2]).with_valid_type(
-                arg1.expression_type.sub_type
+            return None
+    return django_expr.value
+
+
+class BaserowIndex(BaserowFunctionDefinition):
+    type = "index"
+    num_args = NumOfArgsBetween(2, 4)
+
+    @property
+    def arg_types(self) -> BaserowArgumentTypeChecker:
+        def type_checker(arg_index, arg_types):
+            if arg_index == 0:
+                return [BaserowFormulaValidType]
+            elif arg_index == 1:
+                return [BaserowFormulaNumberType]
+            else:
+                return [BaserowFormulaTextType]  # mode + sql literals
+
+        return type_checker
+
+    def type_function_given_valid_args(
+        self,
+        args: List[BaserowExpression[BaserowFormulaValidType]],
+        func_call: BaserowFunctionCall[UnTyped],
+    ) -> BaserowExpression[BaserowFormulaType]:
+        if len(args) not in (2, 4):
+            return func_call.with_invalid_type(
+                "index requires exactly 2 arguments: an array and an index."
             )
 
-    def to_django_expression(self, arg1: Expression, arg2: Expression) -> Expression:
-        return Func(
-            arg1,
-            Cast(arg2, fields.TextField()),
-            function="jsonb_extract_path",
-            output_field=JSONField(),
+        arg1, arg2 = args[0], args[1]
+
+        if arg1.many:
+            arg1 = arg1.expression_type.collapse_many(arg1)
+
+        if not isinstance(arg1.expression_type, BaserowFormulaArrayType):
+            return func_call.with_invalid_type("index requires an array input.")
+
+        sub_type = arg1.expression_type.sub_type
+
+        if len(args) == 4:
+            return func_call.with_args(list(args)).with_valid_type(sub_type)
+
+        mode_literal = BaserowStringLiteral(
+            sub_type.array_index_mode, BaserowFormulaTextType()
         )
+        sql_literal = BaserowStringLiteral(
+            sub_type.array_index_sql, BaserowFormulaTextType()
+        )
+
+        return func_call.with_args(
+            [arg1, arg2, mode_literal, sql_literal]
+        ).with_valid_type(sub_type)
+
+    def to_django_expression_given_args(
+        self,
+        args: List["WrappedExpressionWithMetadata"],
+        context: BaserowExpressionContext,
+    ) -> "WrappedExpressionWithMetadata":
+        mode = _unwrap_literal_value(args[2].expression) or "text"
+        value_sql = _unwrap_literal_value(args[3].expression) or "{elem} ->> 'value'"
+        safe_index = handle_arg_being_nan(
+            args[1].expression,
+            Value(None, output_field=fields.IntegerField()),
+            args[1].expression,
+        )
+        expr = JSONBArrayGetElement(
+            args[0].expression,
+            safe_index,
+            value_sql,
+            _index_output_field(mode),
+        )
+        return WrappedExpressionWithMetadata.from_args(expr, args)
 
 
 class BaserowJsonbExtractPathText(BaserowFunctionDefinition):

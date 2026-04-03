@@ -2570,11 +2570,14 @@ export class BaserowIndex extends BaserowFunctionDefinition {
   }
 
   getSyntaxUsage() {
-    return ['index(a file field, a number)']
+    return ['index(a file field, a number)', 'index(an array field, a number)']
   }
 
   getExamples() {
-    return ['index(field("File field"), 0)']
+    return [
+      'index(field("File field"), 0)',
+      'index(field("Link row field"), 0)',
+    ]
   }
 
   getFormulaType() {
@@ -2652,5 +2655,51 @@ export class BaserowArraySlice extends BaserowFunctionDefinition {
 
   getFormulaType() {
     return 'array'
+  }
+}
+
+export class BaserowFirst extends BaserowFunctionDefinition {
+  static getType() {
+    return 'first'
+  }
+
+  getDescription() {
+    const { $i18n: i18n } = this.app
+    return i18n.t('formulaFunctions.firstDescription')
+  }
+
+  getSyntaxUsage() {
+    return ['first(array)']
+  }
+
+  getExamples() {
+    return ["first(field('my lookup'))"]
+  }
+
+  getFormulaType() {
+    return 'special'
+  }
+}
+
+export class BaserowLast extends BaserowFunctionDefinition {
+  static getType() {
+    return 'last'
+  }
+
+  getDescription() {
+    const { $i18n: i18n } = this.app
+    return i18n.t('formulaFunctions.lastDescription')
+  }
+
+  getSyntaxUsage() {
+    return ['last(array)']
+  }
+
+  getExamples() {
+    return ["last(field('my lookup'))"]
+  }
+
+  getFormulaType() {
+    return 'special'
   }
 }
