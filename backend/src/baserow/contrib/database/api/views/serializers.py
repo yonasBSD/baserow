@@ -25,6 +25,7 @@ from baserow.contrib.database.views.models import (
     OWNERSHIP_TYPE_COLLABORATIVE,
     View,
     ViewDecoration,
+    ViewDefaultValue,
     ViewFilter,
     ViewFilterGroup,
     ViewGroupBy,
@@ -388,6 +389,24 @@ class CreateViewDecorationSerializer(serializers.ModelSerializer):
         }
 
 
+class ViewDefaultValueSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ViewDefaultValue
+        fields = (
+            "id",
+            "field",
+            "enabled",
+            "value",
+            "field_type",
+            "function",
+        )
+        extra_kwargs = {
+            "id": {"read_only": True},
+            "field_type": {"read_only": True},
+            "enabled": {"default": True},
+        }
+
+
 class ViewSerializer(serializers.ModelSerializer):
     type = serializers.SerializerMethodField()
     table = TableWithoutDataSyncSerializer()
@@ -399,6 +418,9 @@ class ViewSerializer(serializers.ModelSerializer):
     )
     decorations = ViewDecorationSerializer(
         many=True, source="viewdecoration_set", required=False
+    )
+    default_row_values = ViewDefaultValueSerializer(
+        many=True, source="view_default_values", required=False
     )
     show_logo = serializers.BooleanField(required=False)
     ownership_type = serializers.CharField()
@@ -419,6 +441,7 @@ class ViewSerializer(serializers.ModelSerializer):
             "sortings",
             "group_bys",
             "decorations",
+            "default_row_values",
             "filters_disabled",
             "public_view_has_password",
             "show_logo",
@@ -440,6 +463,7 @@ class ViewSerializer(serializers.ModelSerializer):
         context["include_sortings"] = kwargs.pop("sortings", False)
         context["include_decorations"] = kwargs.pop("decorations", False)
         context["include_group_bys"] = kwargs.pop("group_bys", False)
+        context["include_default_row_values"] = kwargs.pop("default_row_values", False)
         enhance_objects_by_view_ownership = kwargs.pop(
             "enhance_objects_by_view_ownership", True
         )
@@ -449,14 +473,33 @@ class ViewSerializer(serializers.ModelSerializer):
         # makes sure that the user only receives data about the view that they are
         # permitted to see, according to the ownership type.
         if enhance_objects_by_view_ownership and "user" in context:
+            # Build a set of field names that will actually appear in the
+            # response so that ownership types can skip unnecessary work (and
+            # queries) for fields that are not included.
+            includes = set()
+            if context.get("include_filters"):
+                includes.add("filters")
+            if context.get("include_sortings"):
+                includes.add("sortings")
+            if context.get("include_decorations"):
+                includes.add("decorations")
+            if context.get("include_group_bys"):
+                includes.add("group_bys")
+            if context.get("include_default_row_values"):
+                includes.add("default_row_values")
+
             if isinstance(instance, list):
                 instance = view_ownership_type_registry.prepare_views_of_different_types_for_user(
-                    context["user"], instance
+                    context["user"],
+                    instance,
+                    includes=includes,
                 )
             else:
                 instance = (
                     view_ownership_type_registry.prepare_views_of_different_types_for_user(
-                        context["user"], [instance]
+                        context["user"],
+                        [instance],
+                        includes=includes,
                     )
                 )[0]
         super().__init__(instance, *args, **kwargs)
@@ -479,6 +522,9 @@ class ViewSerializer(serializers.ModelSerializer):
 
         if not self.context["include_group_bys"]:
             self.fields.pop("group_bys", None)
+
+        if not self.context.get("include_default_row_values"):
+            self.fields.pop("default_row_values", None)
 
         return super().to_representation(instance)
 

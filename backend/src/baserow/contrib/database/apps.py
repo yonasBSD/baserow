@@ -119,6 +119,7 @@ class DatabaseConfig(AppConfig):
             SubmitFormActionType,
             UpdateDecorationActionType,
             UpdateViewActionType,
+            UpdateViewDefaultValuesActionType,
             UpdateViewFieldOptionsActionType,
             UpdateViewFilterActionType,
             UpdateViewFilterGroupActionType,
@@ -144,6 +145,7 @@ class DatabaseConfig(AppConfig):
         action_type_registry.register(EditFormRowActionType())
         action_type_registry.register(RotateViewSlugActionType())
         action_type_registry.register(UpdateViewFieldOptionsActionType())
+        action_type_registry.register(UpdateViewDefaultValuesActionType())
         action_type_registry.register(CreateDecorationActionType())
         action_type_registry.register(UpdateDecorationActionType())
         action_type_registry.register(DeleteDecorationActionType())
@@ -774,6 +776,8 @@ class DatabaseConfig(AppConfig):
 
         from baserow.contrib.database.views.operations import (
             CanReceiveNotificationOnSubmitFormViewOperationType,
+            ReadViewDefaultValuesOperationType,
+            UpdateViewDefaultValuesOperationType,
             UpdateViewFieldOptionsOperationType,
         )
 
@@ -917,6 +921,8 @@ class DatabaseConfig(AppConfig):
         operation_type_registry.register(DeleteRelatedLinkRowFieldOperationType())
         operation_type_registry.register(DuplicateFieldOperationType())
         operation_type_registry.register(UpdateViewFieldOptionsOperationType())
+        operation_type_registry.register(ReadViewDefaultValuesOperationType())
+        operation_type_registry.register(UpdateViewDefaultValuesOperationType())
         operation_type_registry.register(WriteFieldValuesOperationType())
         operation_type_registry.register(SubmitAnonymousFieldValuesOperationType())
         operation_type_registry.register(DeleteViewSortOperationType())

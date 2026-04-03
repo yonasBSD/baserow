@@ -1129,6 +1129,14 @@ class DateFieldType(FieldType):
     _can_have_db_index = True
     can_upsert = True
 
+    def get_supported_default_value_functions(self):
+        return ["now"]
+
+    def resolve_default_value_function(self, function_name, field):
+        if function_name == "now":
+            return datetime.now(tz=timezone.utc)
+        return super().resolve_default_value_function(function_name, field)
+
     def can_represent_date(self, field):
         return True
 
@@ -4385,6 +4393,12 @@ class SingleSelectFieldType(CollationSortMixin, SelectOptionBaseFieldType):
     ) -> int:
         return getattr(row, f"{field_name}_id")
 
+    def import_serialized_default_value(self, value, id_mapping):
+        if isinstance(value, int):
+            option_mapping = id_mapping.get("database_field_select_options", {})
+            return option_mapping.get(value, value)
+        return value
+
     def get_search_expression(
         self, field: SingleSelectField, queryset: QuerySet
     ) -> Expression:
@@ -4751,6 +4765,14 @@ class MultipleSelectFieldType(
             child=serializers.IntegerField(), required=False, allow_null=True
         ),
     }
+
+    def import_serialized_default_value(self, value, id_mapping):
+        if isinstance(value, list):
+            option_mapping = id_mapping.get("database_field_select_options", {})
+            return [
+                option_mapping.get(v, v) if isinstance(v, int) else v for v in value
+            ]
+        return value
 
     def init_field_data(self, field, model):
         if field.multiple_select_default:

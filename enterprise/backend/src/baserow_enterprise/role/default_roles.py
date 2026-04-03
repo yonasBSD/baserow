@@ -174,6 +174,7 @@ from baserow.contrib.database.views.operations import (
     ReadAdjacentViewRowOperationType,
     ReadAggregationsViewOperationType,
     ReadViewDecorationOperationType,
+    ReadViewDefaultValuesOperationType,
     ReadViewFieldOptionsOperationType,
     ReadViewFilterGroupOperationType,
     ReadViewFilterOperationType,
@@ -184,6 +185,7 @@ from baserow.contrib.database.views.operations import (
     ReadViewSortOperationType,
     RestoreViewOperationType,
     UpdateViewDecorationOperationType,
+    UpdateViewDefaultValuesOperationType,
     UpdateViewFieldOptionsOperationType,
     UpdateViewFilterGroupOperationType,
     UpdateViewFilterOperationType,
@@ -426,6 +428,7 @@ default_roles[EDITOR_ROLE_UID].extend(
         CreateViewRowOperationType,
         UpdateViewRowOperationType,
         DeleteViewRowOperationType,
+        ReadViewDefaultValuesOperationType,
     ]
 )
 default_roles[BUILDER_ROLE_UID].extend(
@@ -471,6 +474,7 @@ default_roles[BUILDER_ROLE_UID].extend(
         ReadWebhookOperationType,
         OrderViewsOperationType,
         UpdateViewFieldOptionsOperationType,
+        UpdateViewDefaultValuesOperationType,
         CreateApplicationsWorkspaceOperationType,
         DeleteViewSortOperationType,
         UpdateViewSlugOperationType,

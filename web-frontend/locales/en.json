@@ -169,7 +169,8 @@
     "formViewEditRowShareWarning": "Anyone with the shared link can edit rows via the {formNames} form through the publicly visible edit row link fields.|Anyone with the shared link can edit rows via the {formNames} forms through the publicly visible edit row link field.",
     "ai": "AI prompt",
     "multipleCollaboratorsDropdown": "Dropdown",
-    "multipleCollaboratorsCheckboxes": "Checkboxes"
+    "multipleCollaboratorsCheckboxes": "Checkboxes",
+    "defaultValueFunctionNow": "Current date"
   },
   "fieldErrors": {
     "invalidNumber": "Invalid number",
@@ -180,6 +181,7 @@
     "invalidPhoneNumber": "Invalid Phone Number",
     "invalidDuration": "Invalid format ({durationFormat}).",
     "overflowDuration": "Value is out of bounds.",
+    "higherThan": "Value is higher than {max}.",
     "maxChars": "Max {max} chars.",
     "minChars": "Min {min} chars."
   },

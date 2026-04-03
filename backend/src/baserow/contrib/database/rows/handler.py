@@ -855,6 +855,18 @@ class RowHandler(metaclass=baserow_trace_methods(tracer)):
         self._raise_if_values_contain_hidden_fields(user, view, [values])
         self._check_write_fields_values_permissions(user, model, [values])
 
+        # Apply view default values for fields not explicitly provided by the
+        # user. View defaults take priority over field-level defaults.
+        if view is not None:
+            from baserow.contrib.database.views.handler import ViewHandler
+
+            view_defaults = ViewHandler().get_view_default_values_for_row_creation(
+                view, model=model
+            )
+            for field_name, default_value in view_defaults.items():
+                if field_name not in values:
+                    values[field_name] = default_value
+
         return self.force_create_row(
             user,
             table,
@@ -1558,6 +1570,20 @@ class RowHandler(metaclass=baserow_trace_methods(tracer)):
 
         self._raise_if_values_contain_hidden_fields(user, view, rows_values)
         self._check_write_fields_values_permissions(user, model, rows_values)
+
+        # Apply view default values for fields not explicitly provided by the user.
+        # View defaults take priority over field-level defaults.
+        if view is not None:
+            from baserow.contrib.database.views.handler import ViewHandler
+
+            view_defaults = ViewHandler().get_view_default_values_for_row_creation(
+                view, model=model
+            )
+            if view_defaults:
+                for row_values in rows_values:
+                    for field_name, default_value in view_defaults.items():
+                        if field_name not in row_values:
+                            row_values[field_name] = default_value
 
         return self.force_create_rows(
             user,
@@ -2677,7 +2703,9 @@ class RowHandler(metaclass=baserow_trace_methods(tracer)):
         return model.objects.filter(id__in=row_ids).enhance_by_fields()
 
     def get_rows_for_update(
-        self, model: GeneratedTableModel, row_ids: List[int]
+        self,
+        model: GeneratedTableModel,
+        row_ids: List[int],
     ) -> RowsForUpdate:
         """
         Get the rows to update. This method doesn't guarantee that the rows
