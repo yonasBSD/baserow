@@ -119,6 +119,50 @@ class JSONArray(Func):
         )
 
 
+class JSONBArrayUniqueByValue(Func):
+    """
+    Dedup a JSONB array by the 'value' key of each element, preserving
+    first-occurrence order. For arrays with elements like
+    {"id": row_id, "value": actual_value}.
+    """
+
+    template = (
+        "(SELECT COALESCE(jsonb_agg(sub.elem ORDER BY sub.rn), '[]'::jsonb) "
+        "FROM (SELECT DISTINCT ON (t.elem -> 'value') t.elem, t.rn "
+        "FROM jsonb_array_elements(%(expressions)s) WITH ORDINALITY AS t(elem, rn) "
+        "ORDER BY t.elem -> 'value', t.rn) sub)"
+    )
+    output_field = JSONField()
+
+
+class JSONBArrayJoinValues(Func):
+    """
+    Extract the 'value' text from each element of a JSONB array and join them
+    with a separator, preserving the original array order.
+    """
+
+    function = "jsonb_array_join_values"
+    template = (
+        "(SELECT COALESCE(string_agg(t.elem->>'value', %(separator)s ORDER BY t.rn), '') "
+        "FROM jsonb_array_elements(%(expressions)s) WITH ORDINALITY AS t(elem, rn))"
+    )
+    output_field: typing.ClassVar[Field] = None  # set in __init__
+
+    def __init__(self, expression, separator, **extra):
+        from django.db.models import fields as model_fields
+
+        super().__init__(expression, output_field=model_fields.TextField(), **extra)
+        self.separator = separator
+
+    def as_sql(self, compiler, connection, **extra_context):
+        separator_sql, separator_params = compiler.compile(self.separator)
+        extra_context["separator"] = separator_sql
+        sql, params = super().as_sql(compiler, connection, **extra_context)
+        # separator appears before %(expressions)s in the template,
+        # so its params must come first
+        return sql, (*separator_params, *params)
+
+
 class BaserowFilterExpression(Expression):
     """
     Baserow expression that works with field_name and value
