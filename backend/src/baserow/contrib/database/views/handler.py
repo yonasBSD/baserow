@@ -1065,7 +1065,7 @@ class ViewHandler(metaclass=baserow_trace_methods(tracer)):
             "database_field_select_options": MirrorDict(),
         }
         duplicated_view = view_type.import_serialized(
-            original_view.table, serialized, config, id_mapping
+            original_view.table, serialized, config, id_mapping, {}
         )
 
         if duplicated_view is None:
