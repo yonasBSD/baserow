@@ -12,7 +12,7 @@ from django.contrib.auth.models import AbstractUser, AnonymousUser
 from django.contrib.contenttypes.models import ContentType
 from django.core.cache import cache
 from django.core.exceptions import FieldDoesNotExist, ValidationError
-from django.db import connection
+from django.db import OperationalError, connection
 from django.db import models as django_models
 from django.db.models import Count, Q, prefetch_related_objects
 from django.db.models.expressions import OrderBy
@@ -432,6 +432,56 @@ class ViewIndexingHandler(metaclass=baserow_trace_methods(tracer)):
         schedule_view_index_update(view.pk)
 
     @classmethod
+    def drop_all_indexes_for_table(cls, table_id: int):
+        """
+        Drop every view-level btree index that belongs to *table_id* and
+        clear the persisted ``db_index_name`` so the indexes can later be
+        recreated with the correct (truncated) expressions.
+
+        :param table_id: PK of the database table whose view indexes should
+            be dropped.
+        """
+
+        views_with_index = list(
+            View.objects.filter(
+                table_id=table_id,
+                db_index_name__isnull=False,
+            )
+        )
+
+        index_names = set(view.db_index_name for view in views_with_index)
+
+        if index_names:
+            drop_index_sql = sql.SQL("DROP INDEX IF EXISTS {}").format(
+                sql.SQL(", ").join(
+                    sql.Identifier(index_name) for index_name in index_names
+                )
+            )
+
+            with connection.cursor() as cursor:
+                cursor.execute(drop_index_sql)
+
+        if views_with_index:
+            View.objects.filter(id__in=[v.id for v in views_with_index]).update(
+                db_index_name=None
+            )
+
+    @classmethod
+    def handle_index_row_size_error(cls, table_id: int):
+        """
+        Called when a row INSERT/UPDATE fails because a legacy view index
+        (created before the ``Left()`` truncation was applied) exceeds the
+        btree maximum row size.
+
+        The method drops every view index for the affected table so the
+        write can be retried.
+
+        :param table_id: PK of the database table that triggered the error.
+        """
+
+        cls.drop_all_indexes_for_table(table_id)
+
+    @classmethod
     def create_index_if_not_exists(
         cls,
         view: View,
@@ -455,14 +505,27 @@ class ViewIndexingHandler(metaclass=baserow_trace_methods(tracer)):
         if other_view_using_index.exists() or cls.does_index_exist(db_index.name):
             return db_index.name
 
-        with safe_django_schema_editor() as schema_editor:
-            schema_editor.add_index(model, db_index)
-            logger.info(
-                "Created Index {db_index_name} for view {view_pk} of table {view_table_id}",
-                db_index_name=db_index.name,
-                view_pk=view.pk,
-                view_table_id=view.table_id,
-            )
+        try:
+            with safe_django_schema_editor() as schema_editor:
+                schema_editor.add_index(model, db_index)
+                logger.info(
+                    "Created Index {db_index_name} for view {view_pk} of table {view_table_id}",
+                    db_index_name=db_index.name,
+                    view_pk=view.pk,
+                    view_table_id=view.table_id,
+                )
+        except OperationalError as exc:
+            msg = str(exc)
+            if "index" in msg and "size" in msg:
+                logger.warning(
+                    "Failed to create index {db_index_name} for view {view_pk} of "
+                    "table {view_table_id}: {exc}",
+                    db_index_name=db_index.name,
+                    view_pk=view.pk,
+                    view_table_id=view.table_id,
+                    exc=msg,
+                )
+                return None
 
         return db_index.name
 
@@ -576,7 +639,7 @@ class ViewIndexingHandler(metaclass=baserow_trace_methods(tracer)):
             # remove the previous and create the new index
             cls.drop_index_if_unused(view, model)
             if db_index is not None:
-                cls.create_index_if_not_exists(view, model, db_index)
+                new_index_name = cls.create_index_if_not_exists(view, model, db_index)
 
             view.db_index_name = new_index_name
             view.save(update_fields=["db_index_name"])
