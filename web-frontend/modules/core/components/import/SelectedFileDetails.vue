@@ -71,7 +71,7 @@ export default {
 
   methods: {
     formatSize(bytes) {
-      return formatFileSize(bytes)
+      return formatFileSize(this.$t, this.$i18n.locale, bytes)
     },
     async handleRemove() {
       if (this.resourceId) {

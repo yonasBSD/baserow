@@ -469,7 +469,7 @@ SPECTACULAR_SETTINGS = {
         "name": "MIT",
         "url": "https://github.com/baserow/baserow/blob/develop/LICENSE",
     },
-    "VERSION": "2.1.6",
+    "VERSION": "2.2.0",
     "SERVE_INCLUDE_SCHEMA": False,
     "TAGS": [
         {"name": "Settings"},
@@ -816,6 +816,9 @@ FIELD_RULE_ROWS_LIMIT = int(os.getenv("FIELD_RULE_ROWS_LIMIT", BATCH_ROWS_SIZE_L
 INTEGRATION_LOCAL_BASEROW_PAGE_SIZE_LIMIT = int(
     os.getenv("BASEROW_INTEGRATION_LOCAL_BASEROW_PAGE_SIZE_LIMIT", 200)
 )
+INTEGRATION_ALLOW_SMTP_SERVICE_TO_USE_INSTANCE_SETTINGS = str_to_bool(
+    os.getenv("BASEROW_INTEGRATION_ALLOW_SMTP_SERVICE_TO_USE_INSTANCE_SETTINGS", "true")
+)
 
 AUTOMATION_HISTORY_PAGE_SIZE_LIMIT = int(
     os.getenv("BASEROW_AUTOMATION_HISTORY_PAGE_SIZE_LIMIT", 100)
@@ -834,6 +837,9 @@ AUTOMATION_WORKFLOW_HISTORY_RATE_LIMIT_CACHE_EXPIRY_SECONDS = int(
 )
 AUTOMATION_WORKFLOW_MAX_CONSECUTIVE_ERRORS = int(
     os.getenv("BASEROW_AUTOMATION_WORKFLOW_MAX_CONSECUTIVE_ERRORS", 5)
+)
+AUTOMATION_WORKFLOW_TIMEOUT_HOURS = int(
+    os.getenv("BASEROW_AUTOMATION_WORKFLOW_TIMEOUT_HOURS", 24)
 )
 AUTOMATION_WORKFLOW_HISTORY_MAX_DAYS = int(
     os.getenv("BASEROW_AUTOMATION_WORKFLOW_HISTORY_MAX_DAYS", 30)
@@ -1312,7 +1318,6 @@ BASEROW_LAZY_LOADED_LIBRARIES = [
     "anthropic",
     "mistralai",
     "ollama",
-    "langchain_core",
     "jira2markdown",
     "saml2",
     "openpyxl",
@@ -1329,15 +1334,14 @@ if SENTRY_DSN:
     from sentry_sdk.integrations.django import DjangoIntegration
     from sentry_sdk.scrubber import DEFAULT_DENYLIST, EventScrubber
 
-    # Exclude the langchain integration from auto-discovery: its module-level
-    # imports are incompatible with Python 3.14 (langchain/pydantic type
-    # evaluation crash), and the import happens before disabled_integrations
-    # can take effect.
+    # Exclude integrations whose module-level imports are incompatible:
+    # - pydantic_ai: sentry-sdk patches ToolManager._call_tool which was
+    #   removed in pydantic-ai >= 1.x (now execute_tool_call)
 
     _sentry_integrations._AUTO_ENABLING_INTEGRATIONS[:] = [
         entry
         for entry in _sentry_integrations._AUTO_ENABLING_INTEGRATIONS
-        if "langchain" not in entry
+        if "pydantic_ai" not in entry
     ]
 
     SENTRY_DENYLIST = DEFAULT_DENYLIST + ["username", "email", "name"]
@@ -1513,4 +1517,15 @@ BASEROW_DEADLOCK_MAX_RETRIES = max(
 BASEROW_DEADLOCK_INITIAL_BACKOFF = max(
     try_float(os.getenv("BASEROW_DEADLOCK_INITIAL_BACKOFF"), 0.2),
     0.1,
+)
+
+# Set to "all" to enable captcha everywhere, or comma-separated contexts like
+# "signup,invitations" to enable only in specific places.
+BASEROW_ENABLE_CAPTCHA = os.getenv("BASEROW_ENABLE_CAPTCHA", "")
+BASEROW_CAPTCHA_PROVIDER = os.getenv("BASEROW_CAPTCHA_PROVIDER", "cloudflare_turnstile")
+BASEROW_CLOUDFLARE_TURNSTILE_SITE_KEY = os.getenv(
+    "BASEROW_CLOUDFLARE_TURNSTILE_SITE_KEY", ""
+)
+BASEROW_CLOUDFLARE_TURNSTILE_SECRET_KEY = os.getenv(
+    "BASEROW_CLOUDFLARE_TURNSTILE_SECRET_KEY", ""
 )

@@ -115,7 +115,7 @@ def test_create_workflow_duplicate_name(api_client, data_fixture):
     )
 
     assert response.status_code == HTTP_200_OK
-    assert response.json()["name"] != "test"
+    assert response.json()["name"] == "test"
 
 
 @pytest.mark.django_db
@@ -181,7 +181,7 @@ def test_update_workflow_duplicate_name(api_client, data_fixture):
         user, automation=automation, name="test"
     )
     workflow_2 = data_fixture.create_automation_workflow(
-        user, automation=automation, name="test2"
+        user, automation=automation, name="test"
     )
 
     url = reverse(API_URL_WORKFLOW_ITEM, kwargs={"workflow_id": workflow_2.id})
@@ -192,8 +192,11 @@ def test_update_workflow_duplicate_name(api_client, data_fixture):
         HTTP_AUTHORIZATION=f"JWT {token}",
     )
 
-    assert response.status_code == HTTP_400_BAD_REQUEST
-    assert response.json()["error"] == "ERROR_AUTOMATION_WORKFLOW_NAME_NOT_UNIQUE"
+    assert response.status_code == HTTP_200_OK
+    workflow.refresh_from_db()
+    assert workflow.name == "test"
+    workflow_2.refresh_from_db()
+    assert workflow_2.name == "test"
 
 
 @pytest.mark.django_db
@@ -523,6 +526,43 @@ def test_publish_workflow(api_client, data_fixture):
 
 
 @pytest.mark.django_db
+def test_publish_workflow_error_max_job_count_exceeded(api_client, data_fixture):
+    user = data_fixture.create_user()
+    automation = data_fixture.create_automation_application(user)
+    workflow_1 = data_fixture.create_automation_workflow(
+        user, automation=automation, name="test1"
+    )
+    workflow_2 = data_fixture.create_automation_workflow(
+        user, automation=automation, name="test2"
+    )
+    workflow_3 = data_fixture.create_automation_workflow(
+        user, automation=automation, name="test3"
+    )
+
+    token = data_fixture.generate_token(user)
+    for workflow_id in [workflow_1.id, workflow_2.id]:
+        url = reverse(API_URL_WORKFLOW_PUBLISH, kwargs={"workflow_id": workflow_id})
+        response = api_client.post(
+            url,
+            format="json",
+            HTTP_AUTHORIZATION=f"JWT {token}",
+        )
+        assert response.status_code == HTTP_202_ACCEPTED
+
+    url = reverse(API_URL_WORKFLOW_PUBLISH, kwargs={"workflow_id": workflow_3.id})
+    response = api_client.post(
+        url,
+        format="json",
+        HTTP_AUTHORIZATION=f"JWT {token}",
+    )
+    assert response.status_code == HTTP_400_BAD_REQUEST
+    assert response.json() == {
+        "detail": "Max running job count for this type is exceeded.",
+        "error": "ERROR_MAX_JOB_COUNT_EXCEEDED",
+    }
+
+
+@pytest.mark.django_db
 def test_publish_workflow_error_invalid_workflow(api_client, data_fixture):
     _, token = data_fixture.create_user_and_token()
 
@@ -617,5 +657,8 @@ def test_rename_workflow_using_existing_workflow_name(api_client, data_fixture):
         HTTP_AUTHORIZATION=f"JWT {token}",
     )
 
-    assert response.status_code == HTTP_400_BAD_REQUEST
-    assert response.json()["error"] == "ERROR_AUTOMATION_WORKFLOW_NAME_NOT_UNIQUE"
+    assert response.status_code == HTTP_200_OK
+    workflow_1.refresh_from_db()
+    assert workflow_1.name == "test1"
+    workflow_2.refresh_from_db()
+    assert workflow_2.name == "test1"

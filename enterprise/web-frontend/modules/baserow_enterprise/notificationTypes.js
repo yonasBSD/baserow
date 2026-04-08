@@ -1,5 +1,6 @@
 import { NotificationType } from '@baserow/modules/core/notificationTypes'
 
+import DataScanNewResultsNotification from '@baserow_enterprise/components/notifications/DataScanNewResultsNotification'
 import PeriodicDataSyncDeactivatedNotification from '@baserow_enterprise/components/notifications/PeriodicDataSyncDeactivatedNotification'
 import TwoWaySyncUpdateFailedNotification from '@baserow_enterprise/components/notifications/TwoWaySyncUpdateFailedNotification'
 import TwoWaySyncDeactivatedNotification from '@baserow_enterprise/components/notifications/TwoWaySyncDeactivatedNotification'
@@ -22,6 +23,7 @@ export class PeriodicDataSyncDeactivatedNotificationType extends NotificationTyp
 
   getRoute(notificationData) {
     return tableRouteResetViewIfNeeded(
+      this.app.$router,
       {
         databaseId: notificationData.database_id,
         tableId: notificationData.table_id,
@@ -47,6 +49,7 @@ export class TwoWayDataSyncUpdateFiledNotificationType extends NotificationType 
 
   getRoute(notificationData) {
     return tableRouteResetViewIfNeeded(
+      this.app.$router,
       {
         databaseId: notificationData.database_id,
         tableId: notificationData.table_id,
@@ -72,6 +75,7 @@ export class TwoWaySyncDeactivatedNotificationType extends NotificationType {
 
   getRoute(notificationData) {
     return tableRouteResetViewIfNeeded(
+      this.app.$router,
       {
         databaseId: notificationData.database_id,
         tableId: notificationData.table_id,
@@ -79,5 +83,29 @@ export class TwoWaySyncDeactivatedNotificationType extends NotificationType {
       },
       'database-table-open-configure-data-sync'
     )
+  }
+}
+
+export class DataScanNewResultsNotificationType extends NotificationType {
+  static getType() {
+    return 'data_scan_new_results'
+  }
+
+  getIconComponent() {
+    return null
+  }
+
+  getContentComponent() {
+    return DataScanNewResultsNotification
+  }
+
+  getRoute(notificationData) {
+    return {
+      name: 'admin-data-scanner-results',
+      query: {
+        scan_id: notificationData.scan_id,
+        scan_name: notificationData.scan_name,
+      },
+    }
   }
 }

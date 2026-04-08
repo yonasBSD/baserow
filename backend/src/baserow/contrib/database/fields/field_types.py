@@ -49,7 +49,7 @@ from django.db.models import (
 )
 from django.db.models.fields import NOT_PROVIDED
 from django.db.models.fields.related import ManyToManyField
-from django.db.models.functions import Cast, Coalesce, RowNumber
+from django.db.models.functions import Cast, Coalesce, Left, RowNumber
 
 from dateutil import parser
 from dateutil.parser import ParserError
@@ -142,6 +142,7 @@ from baserow.contrib.database.views.handler import ViewHandler
 from baserow.contrib.database.views.models import (
     DEFAULT_SORT_TYPE_KEY,
     OWNERSHIP_TYPE_COLLABORATIVE,
+    FormView,
     View,
 )
 from baserow.core.db import (
@@ -206,6 +207,7 @@ from .field_sortings import OptionallyAnnotatedOrderBy
 from .fields import (
     BaserowExpressionField,
     BaserowLastModifiedField,
+    FormViewEditRowURLSerializerField,
     IntegerFieldWithSequence,
     MultipleSelectManyToManyField,
     SingleSelectForeignKey,
@@ -226,6 +228,7 @@ from .models import (
     Field,
     FileField,
     FormulaField,
+    FormViewEditRowField,
     LastModifiedByField,
     LastModifiedField,
     LinkRowField,
@@ -263,6 +266,7 @@ from .utils.duration import (
     prepare_duration_value_for_db,
     text_value_sql_to_duration,
 )
+from .utils.row_edit import build_row_edit_url
 
 User = get_user_model()
 
@@ -275,7 +279,9 @@ class CollationSortMixin:
     def get_order(
         self, field, field_name, order_direction, sort_type, table_model=None
     ) -> OptionallyAnnotatedOrderBy:
-        field_expr = collate_expression(F(field_name))
+        from baserow.contrib.database.fields.constants import SORT_INDEX_TEXT_MAX_CHARS
+
+        field_expr = collate_expression(Left(F(field_name), SORT_INDEX_TEXT_MAX_CHARS))
 
         if order_direction == "ASC":
             field_order_by = field_expr.asc(nulls_first=True)
@@ -906,16 +912,29 @@ class RatingFieldType(FieldType):
         return value
 
     def get_serializer_field(self, instance, **kwargs):
-        return serializers.IntegerField(
-            **{
-                "required": False,
-                "allow_null": False,
-                "min_value": 0,
-                "default": 0,
-                "max_value": instance.max_value,
-                **kwargs,
-            }
-        )
+        required = kwargs.get("required", False)
+        field_kwargs = {
+            "required": False,
+            "allow_null": False,
+            "min_value": 0,
+            "default": 0,
+            "max_value": instance.max_value,
+            **kwargs,
+        }
+        if required:
+            field_kwargs.pop("default", None)
+            validators = field_kwargs.get("validators", [])
+            validators.append(self._rating_required_validator)
+            field_kwargs["validators"] = validators
+        return serializers.IntegerField(**field_kwargs)
+
+    @staticmethod
+    def _rating_required_validator(value):
+        if value == 0:
+            raise ValidationError(
+                "This field is required.",
+                code="required",
+            )
 
     def force_same_type_alter_column(self, from_field, to_field):
         """
@@ -1111,6 +1130,14 @@ class DateFieldType(FieldType):
     _db_column_fields = ["date_include_time"]
     _can_have_db_index = True
     can_upsert = True
+
+    def get_supported_default_value_functions(self):
+        return ["now"]
+
+    def resolve_default_value_function(self, function_name, field):
+        if function_name == "now":
+            return datetime.now(tz=timezone.utc)
+        return super().resolve_default_value_function(function_name, field)
 
     def can_represent_date(self, field):
         return True
@@ -4368,6 +4395,12 @@ class SingleSelectFieldType(CollationSortMixin, SelectOptionBaseFieldType):
     ) -> int:
         return getattr(row, f"{field_name}_id")
 
+    def import_serialized_default_value(self, value, id_mapping, workspace_id, cache):
+        if isinstance(value, int):
+            option_mapping = id_mapping.get("database_field_select_options", {})
+            return option_mapping.get(value, value)
+        return value
+
     def get_search_expression(
         self, field: SingleSelectField, queryset: QuerySet
     ) -> Expression:
@@ -4734,6 +4767,14 @@ class MultipleSelectFieldType(
             child=serializers.IntegerField(), required=False, allow_null=True
         ),
     }
+
+    def import_serialized_default_value(self, value, id_mapping, workspace_id, cache):
+        if isinstance(value, list):
+            option_mapping = id_mapping.get("database_field_select_options", {})
+            return [
+                option_mapping.get(v, v) if isinstance(v, int) else v for v in value
+            ]
+        return value
 
     def init_field_data(self, field, model):
         if field.multiple_select_default:
@@ -7016,6 +7057,50 @@ class MultipleCollaboratorsFieldType(
 
         return through_objects
 
+    def export_serialized_default_value(self, value, field, workspace_id, cache):
+        if not isinstance(value, list):
+            return value
+
+        cache_entry = f"collaborator_id_to_email_export_{workspace_id}"
+        if cache_entry not in cache:
+            cache[cache_entry] = dict(
+                WorkspaceUser.objects.filter(workspace_id=workspace_id).values_list(
+                    "user_id", "user__email"
+                )
+            )
+
+        id_to_email = cache[cache_entry]
+        return [
+            id_to_email[user["id"]]
+            for user in value
+            if isinstance(user["id"], int) and user["id"] in id_to_email
+        ]
+
+    def import_serialized_default_value(self, value, id_mapping, workspace_id, cache):
+        if not isinstance(value, list):
+            return value
+
+        cache_key = f"collaborator_email_to_id_import_{workspace_id}"
+        if cache_key not in cache:
+            cache[cache_key] = {
+                workspace_user["user__email"]: workspace_user
+                for workspace_user in WorkspaceUser.objects.filter(
+                    workspace_id=workspace_id
+                )
+                .select_related("user")
+                .values("user__email", "user__first_name", "user_id")
+            }
+
+        email_to_id = cache[cache_key]
+        return [
+            {
+                "id": email_to_id[email]["user_id"],
+                "name": email_to_id[email]["user__first_name"],
+            }
+            for email in value
+            if isinstance(email, str) and email in email_to_id
+        ]
+
     def random_value(self, instance, fake, cache):
         """
         Selects a random sublist out of the possible collaborators.
@@ -7397,12 +7482,17 @@ class AutonumberFieldType(ReadOnlyFieldType):
             cursor.execute(
                 f"ALTER SEQUENCE {db_column}_seq OWNED BY {db_table}.{db_column};"
             )
-            # Set the sequence to the count of rows in the table, only if there
-            # is at least one row.
+            # Use COALESCE(MAX, COUNT) to set the sequence correctly in all
+            # cases: MAX handles gaps from deleted rows or imported data,
+            # COUNT is the fallback when the column is all NULLs (e.g. when
+            # creating a new autonumber field on an existing table).
             cursor.execute(
                 f"""
-                WITH count AS (SELECT COUNT(*) FROM {db_table})
-                SELECT setval('{db_column}_seq', count) FROM count WHERE count > 0;
+                WITH seq_val AS (
+                    SELECT COALESCE(MAX({db_column}), COUNT(*)) AS val
+                    FROM {db_table}
+                )
+                SELECT setval('{db_column}_seq', val) FROM seq_val WHERE val > 0;
                 """  # noqa: S608
             )
 
@@ -7503,3 +7593,137 @@ class PasswordFieldType(FieldType):
     def is_searchable(self, field: Field) -> bool:
         # passwords shouldn't be searchable!
         return False
+
+
+class FormViewEditRowFieldType(ReadOnlyFieldType):
+    """
+    A field type that generates a unique, secure URL per row. When visited, the URL
+    opens the linked form view pre-filled with that row's current values, allowing the
+    visitor to edit and save them.
+    """
+
+    type = "form_view_edit_row"
+    model_class = FormViewEditRowField
+    allowed_fields = ["form_view_id"]
+    serializer_field_names = ["form_view_id"]
+    serializer_field_overrides = {
+        "form_view_id": serializers.IntegerField(
+            required=False,
+            allow_null=True,
+            help_text="The id of the form view used to edit rows via this field.",
+        )
+    }
+    can_be_in_form_view = False
+    field_data_is_derived_from_attrs = False
+    _can_order_by_types = []
+    _can_be_primary_field = False
+    can_get_unique_values = False
+    _can_have_db_index = True
+    keep_data_on_duplication = False
+    api_exceptions_map = {
+        ViewNotInTable: ERROR_VIEW_NOT_IN_TABLE,
+    }
+
+    def get_serializer_field(self, instance, **kwargs):
+        return serializers.UUIDField(required=False, **kwargs)
+
+    def get_response_serializer_field(self, instance, **kwargs):
+        return FormViewEditRowURLSerializerField(field_instance=instance, **kwargs)
+
+    def get_model_field(self, instance, **kwargs):
+        return models.UUIDField(
+            default=uuid.uuid4,
+            db_default=RandomUUID(),
+            null=True,
+            db_index=instance.db_index,
+            **kwargs,
+        )
+
+    def enhance_field_queryset(
+        self, queryset: QuerySet[Field], field: Field
+    ) -> QuerySet[Field]:
+        return queryset.select_related("form_view")
+
+    def before_create(
+        self, table, primary, allowed_field_values, order, user, field_kwargs
+    ):
+        form_view_id = field_kwargs.get("form_view_id")
+        if form_view_id:
+            if not FormView.objects.filter(id=form_view_id, table=table).exists():
+                raise ViewNotInTable(form_view_id)
+
+    def before_update(self, from_field, to_field_values, user, field_kwargs):
+        form_view_id = field_kwargs.get("form_view_id")
+        if form_view_id is not None:
+            if not FormView.objects.filter(
+                id=form_view_id, table_id=from_field.table_id
+            ).exists():
+                raise ViewNotInTable(form_view_id)
+
+    def is_searchable(self, field: Field) -> bool:
+        return False
+
+    def get_export_value(self, value, field_object, rich_value=False):
+        if not value:
+            return ""
+        field_instance = field_object["field"]
+        form_view = field_instance.form_view
+        if form_view is None:
+            return ""
+        return build_row_edit_url(str(value), form_view, field_instance.id)
+
+    def import_serialized(
+        self,
+        table: "Table",
+        serialized_values: Dict[str, Any],
+        import_export_config: ImportExportConfig,
+        id_mapping: Dict[str, Any],
+        deferred_fk_update_collector: DeferredForeignKeyUpdater,
+    ) -> Optional[Field]:
+        """
+        Import the field and remap the ``form_view_id`` to the newly created
+        view via the deferred FK collector.
+
+        :param table: The table the field is being imported into.
+        :param serialized_values: The exported field attributes.
+        :param import_export_config: Import/export configuration.
+        :param id_mapping: Mapping from old IDs to new IDs.
+        :param deferred_fk_update_collector: Collector for deferred FK updates.
+        :return: The newly created field instance.
+        """
+
+        serialized_copy = serialized_values.copy()
+        old_form_view_id = serialized_copy.pop("form_view_id", None)
+
+        field = super().import_serialized(
+            table,
+            serialized_copy,
+            import_export_config,
+            id_mapping,
+            deferred_fk_update_collector,
+        )
+
+        if old_form_view_id:
+            deferred_fk_update_collector.add_deferred_fk_to_update(
+                field,
+                "form_view_id",
+                old_form_view_id,
+                "database_views",
+            )
+
+        return field
+
+    def get_export_serialized_value(
+        self,
+        row: "GeneratedTableModel",
+        field_name: str,
+        cache: Dict[str, Any],
+        files_zip=None,
+        storage=None,
+    ):
+        return None
+
+    def set_import_serialized_value(
+        self, row, field_name, value, id_mapping, cache, files_zip, storage
+    ):
+        pass

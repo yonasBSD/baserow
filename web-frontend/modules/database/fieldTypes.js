@@ -61,6 +61,7 @@ import GridViewFieldUUID from '@baserow/modules/database/components/view/grid/fi
 import GridViewFieldAutonumber from '@baserow/modules/database/components/view/grid/fields/GridViewFieldAutonumber'
 import GridViewFieldLastModifiedBy from '@baserow/modules/database/components/view/grid/fields/GridViewFieldLastModifiedBy'
 import GridViewFieldPassword from '@baserow/modules/database/components/view/grid/fields/GridViewFieldPassword'
+import GridViewFieldFormViewEditRow from '@baserow/modules/database/components/view/grid/fields/GridViewFieldFormViewEditRow'
 
 import FunctionalGridViewFieldText from '@baserow/modules/database/components/view/grid/fields/FunctionalGridViewFieldText'
 import FunctionalGridViewFieldDuration from '@baserow/modules/database/components/view/grid/fields/FunctionalGridViewFieldDuration'
@@ -81,6 +82,7 @@ import FunctionalGridViewFieldUUID from '@baserow/modules/database/components/vi
 import FunctionalGridViewFieldAutonumber from '@baserow/modules/database/components/view/grid/fields/FunctionalGridViewFieldAutonumber'
 import FunctionalGridViewFieldLastModifiedBy from '@baserow/modules/database/components/view/grid/fields/FunctionalGridViewFieldLastModifiedBy'
 import FunctionalGridVIewFieldPassword from '@baserow/modules/database/components/view/grid/fields/FunctionalGridVIewFieldPassword.vue'
+import FunctionalGridViewFieldFormViewEditRow from '@baserow/modules/database/components/view/grid/fields/FunctionalGridViewFieldFormViewEditRow'
 
 import RowEditFieldText from '@baserow/modules/database/components/row/RowEditFieldText'
 import RowEditFieldLongText from '@baserow/modules/database/components/row/RowEditFieldLongText'
@@ -103,6 +105,7 @@ import RowEditFieldUUID from '@baserow/modules/database/components/row/RowEditFi
 import RowEditFieldAutonumber from '@baserow/modules/database/components/row/RowEditFieldAutonumber'
 import RowEditFieldLastModifiedBy from '@baserow/modules/database/components/row/RowEditFieldLastModifiedBy'
 import RowEditFieldPassword from '@baserow/modules/database/components/row/RowEditFieldPassword'
+import RowEditFieldFormViewEditRow from '@baserow/modules/database/components/row/RowEditFieldFormViewEditRow'
 
 import RowCardFieldBoolean from '@baserow/modules/database/components/card/RowCardFieldBoolean'
 import RowCardFieldDate from '@baserow/modules/database/components/card/RowCardFieldDate'
@@ -124,6 +127,7 @@ import RowCardFieldUUID from '@baserow/modules/database/components/card/RowCardF
 import RowCardFieldAutonumber from '@baserow/modules/database/components/card/RowCardFieldAutonumber'
 import RowCardFieldLastModifiedBy from '@baserow/modules/database/components/card/RowCardFieldLastModifiedBy'
 import RowCardFieldPassword from '@baserow/modules/database/components/card/RowCardFieldPassword'
+import RowCardFieldFormViewEditRow from '@baserow/modules/database/components/card/RowCardFieldFormViewEditRow'
 
 import RowHistoryFieldText from '@baserow/modules/database/components/row/RowHistoryFieldText'
 import RowHistoryFieldRichText from '@baserow/modules/database/components/row/RowHistoryFieldRichText'
@@ -174,6 +178,7 @@ import { trueValues } from '@baserow/modules/core/utils/constants'
 import ViewFilterTypeNumber from '@baserow/modules/database/components/view/ViewFilterTypeNumber.vue'
 import ViewFilterTypeDuration from '@baserow/modules/database/components/view/ViewFilterTypeDuration.vue'
 import FormViewFieldOptionsAllowedSelectOptions from '@baserow/modules/database/components/view/form/FormViewFieldOptionsAllowedSelectOptions'
+import FieldFormViewEditRowSubForm from '@baserow/modules/database/components/field/FieldFormViewEditRowSubForm'
 
 export class FieldType extends Registerable {
   /**
@@ -331,6 +336,48 @@ export class FieldType extends Registerable {
    */
   getCardValueHeight(field) {
     return this.getCardComponent(field).height || 0
+  }
+
+  /**
+   * Indicates whether this field type is compatible with the default values
+   * feature. By default all writable field types are compatible. Override and
+   * return `false` for field types whose row-edit component or write behaviour
+   * is incompatible with default value setting (e.g. the AI field).
+   */
+  canBeDefaultValue() {
+    return true
+  }
+
+  /**
+   * Returns a list of supported default value functions for this field type.
+   * Each item is an object with `name` and `label` properties.
+   * Override in field types that support dynamic defaults (e.g. date fields).
+   */
+  getSupportedDefaultValueFunctions() {
+    return []
+  }
+
+  /**
+   * Resolves a default value function to an actual value for optimistic display.
+   * Override in field types that support functions.
+   */
+  resolveDefaultValueFunction(functionName, field) {
+    return null
+  }
+
+  /**
+   * Converts a raw default value (stored in API request format) into the
+   * frontend's internal row representation so that it can be displayed and
+   * later passed through `prepareValueForUpdate` correctly.
+   *
+   * By default returns the value as-is. Override in field types where the
+   * request format differs from the frontend representation (e.g.
+   * single_select stores an ID but the frontend expects an option object,
+   * multiple_select stores [id, ...] but the frontend expects [{id, value,
+   * color}, ...]).
+   */
+  parseDefaultRowValue(field, value) {
+    return value
   }
 
   /**
@@ -837,6 +884,16 @@ export class FieldType extends Registerable {
    */
   shouldFetchDataWhenAdded() {
     return false
+  }
+
+  /**
+   * Can optionally return a warning message to display in the share view link context
+   * when the view is being shared publicly. This is called once per field type with
+   * all visible fields of that type, allowing the implementation to produce a
+   * single combined warning.
+   */
+  getShareViewWarning(fields, context) {
+    return null
   }
 
   /**
@@ -1372,8 +1429,8 @@ export class LinkRowFieldType extends FieldType {
   }
 
   isEqual(field, value1, value2) {
-    const value1Ids = value1.map((v) => v.id)
-    const value2Ids = value2.map((v) => v.id)
+    const value1Ids = (value1 || []).map((v) => v.id)
+    const value2Ids = (value2 || []).map((v) => v.id)
 
     return _.isEqual(value1Ids, value2Ids)
   }
@@ -1974,6 +2031,13 @@ export class RatingFieldType extends FieldType {
     return 0
   }
 
+  isEmpty(field, value) {
+    if (value === 0) {
+      return true
+    }
+    return super.isEmpty(field, value)
+  }
+
   canUpsert() {
     return true
   }
@@ -2055,6 +2119,29 @@ export class RatingFieldType extends FieldType {
     }
 
     return valueParsed
+  }
+
+  prepareValueForUpdate(field, value) {
+    if (value > field.max_value) {
+      return field.max_value
+    }
+    return value
+  }
+
+  getValidationError(field, value) {
+    const valueParsed = parseInt(value, 10)
+
+    if (isNaN(valueParsed) || valueParsed < 0) {
+      return this.app.$i18n.t('fieldErrors.invalidNumber')
+    }
+
+    if (valueParsed > field.max_value) {
+      return this.app.$i18n.t('fieldErrors.higherThan', {
+        max: field.max_value,
+      })
+    }
+
+    return null
   }
 
   getCanImport() {
@@ -2476,6 +2563,22 @@ export class DateFieldType extends BaseDateFieldType {
   getName() {
     const { $i18n: i18n } = this.app
     return i18n.t('fieldType.date')
+  }
+
+  getSupportedDefaultValueFunctions() {
+    const { $i18n: i18n } = this.app
+    return [{ name: 'now', label: i18n.t('fieldType.defaultValueFunctionNow') }]
+  }
+
+  resolveDefaultValueFunction(functionName, field) {
+    if (functionName === 'now') {
+      const now = new Date()
+      if (field.date_include_time) {
+        return now.toISOString()
+      }
+      return now.toISOString().split('T')[0]
+    }
+    return null
   }
 
   getGridViewFieldComponent() {
@@ -3588,6 +3691,17 @@ export class SingleSelectFieldType extends SelectOptionBaseFieldType {
     return value ? { value } : null
   }
 
+  parseDefaultRowValue(field, value) {
+    if (value === null || value === undefined) {
+      return null
+    }
+    // Raw value is an option ID; resolve to the full option object.
+    if (typeof value !== 'object') {
+      return field.select_options.find((opt) => opt.id === value) || null
+    }
+    return value
+  }
+
   prepareValueForUpdate(field, value) {
     if (value === undefined || value === null) {
       return null
@@ -3837,6 +3951,21 @@ export class MultipleSelectFieldType extends SelectOptionBaseFieldType {
 
       return collatedStringCompare(stringA, stringB, order)
     }
+  }
+
+  parseDefaultRowValue(field, value) {
+    if (!Array.isArray(value)) {
+      return []
+    }
+    // Raw value is an array of option IDs; resolve to full option objects.
+    return value
+      .map((item) => {
+        if (typeof item === 'object' && item !== null) {
+          return item
+        }
+        return field.select_options.find((opt) => opt.id === item) || null
+      })
+      .filter(Boolean)
   }
 
   prepareValueForUpdate(field, value) {
@@ -4727,6 +4856,10 @@ export class MultipleCollaboratorsFieldType extends FieldType {
 
     return _.isEqual(value1Ids, value2Ids)
   }
+
+  getEmptyValue(field) {
+    return []
+  }
 }
 
 export class UUIDFieldType extends FieldType {
@@ -5002,5 +5135,114 @@ export class PasswordFieldType extends FieldType {
 
   getRowHistoryEntryComponent() {
     return RowHistoryFieldPassword
+  }
+}
+
+export class FormViewEditRowFieldType extends FieldType {
+  static getType() {
+    return 'form_view_edit_row'
+  }
+
+  static getIconClass() {
+    return 'iconoir-page-edit'
+  }
+
+  getName() {
+    const { $i18n: i18n } = this.app
+    return i18n.t('fieldType.formViewEditRow')
+  }
+
+  getFormComponent() {
+    return FieldFormViewEditRowSubForm
+  }
+
+  getGridViewFieldComponent() {
+    return GridViewFieldFormViewEditRow
+  }
+
+  getFunctionalGridViewFieldComponent() {
+    return FunctionalGridViewFieldFormViewEditRow
+  }
+
+  getRowEditFieldComponent() {
+    return RowEditFieldFormViewEditRow
+  }
+
+  getCardComponent() {
+    return RowCardFieldFormViewEditRow
+  }
+
+  isReadOnlyField() {
+    return true
+  }
+
+  getDefaultValue() {
+    return null
+  }
+
+  getCanSortInView() {
+    return false
+  }
+
+  getCanGroupByInView() {
+    return false
+  }
+
+  getCanFilterInView() {
+    return false
+  }
+
+  getCanBePrimaryField() {
+    return false
+  }
+
+  canBeInFormView() {
+    return false
+  }
+
+  getDocsDataType() {
+    return 'string'
+  }
+
+  getDocsDescription() {
+    return this.app.$i18n.t('fieldDocs.formViewEditRow')
+  }
+
+  getDocsRequestExample() {
+    return 'https://baserow.io/form/slug/?edit_token=...'
+  }
+
+  toHumanReadableString(field, value) {
+    return value || ''
+  }
+
+  prepareValueForCopy(field, value) {
+    return value || ''
+  }
+
+  shouldFetchDataWhenAdded() {
+    return true
+  }
+
+  getShareViewWarning(fields, { allViews }) {
+    const views = allViews || []
+    const formNames = [
+      ...new Set(
+        fields
+          .map((field) => {
+            const formView = views.find((v) => v.id === field.form_view_id)
+            return formView ? formView.name : null
+          })
+          .filter((name) => name !== null)
+      ),
+    ]
+    if (formNames.length === 0) {
+      return null
+    }
+    const { $i18n: i18n } = this.app
+    return i18n.t('fieldType.formViewEditRowShareWarning', {
+      count: formNames.length,
+      formNames: formNames.join(', '),
+    })
   }
 }

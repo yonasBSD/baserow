@@ -113,11 +113,13 @@ class DatabaseConfig(AppConfig):
             DeleteViewGroupByActionType,
             DeleteViewSortActionType,
             DuplicateViewActionType,
+            EditFormRowActionType,
             OrderViewsActionType,
             RotateViewSlugActionType,
             SubmitFormActionType,
             UpdateDecorationActionType,
             UpdateViewActionType,
+            UpdateViewDefaultValuesActionType,
             UpdateViewFieldOptionsActionType,
             UpdateViewFilterActionType,
             UpdateViewFilterGroupActionType,
@@ -140,8 +142,10 @@ class DatabaseConfig(AppConfig):
         action_type_registry.register(UpdateViewGroupByActionType())
         action_type_registry.register(DeleteViewGroupByActionType())
         action_type_registry.register(SubmitFormActionType())
+        action_type_registry.register(EditFormRowActionType())
         action_type_registry.register(RotateViewSlugActionType())
         action_type_registry.register(UpdateViewFieldOptionsActionType())
+        action_type_registry.register(UpdateViewDefaultValuesActionType())
         action_type_registry.register(CreateDecorationActionType())
         action_type_registry.register(UpdateDecorationActionType())
         action_type_registry.register(DeleteDecorationActionType())
@@ -196,6 +200,7 @@ class DatabaseConfig(AppConfig):
             EmailFieldType,
             FileFieldType,
             FormulaFieldType,
+            FormViewEditRowFieldType,
             LastModifiedByFieldType,
             LastModifiedFieldType,
             LinkRowFieldType,
@@ -240,6 +245,7 @@ class DatabaseConfig(AppConfig):
         field_type_registry.register(UUIDFieldType())
         field_type_registry.register(AutonumberFieldType())
         field_type_registry.register(PasswordFieldType())
+        field_type_registry.register(FormViewEditRowFieldType())
 
         from .fields.field_aggregations import (
             AverageFieldAggregationType,
@@ -287,6 +293,7 @@ class DatabaseConfig(AppConfig):
             AutonumberFieldConverter,
             FileFieldConverter,
             FormulaFieldConverter,
+            FormViewEditRowFieldConverter,
             LinkRowFieldConverter,
             MultipleCollaboratorsFieldConverter,
             MultipleSelectFieldToSingleSelectFieldConverter,
@@ -308,6 +315,7 @@ class DatabaseConfig(AppConfig):
             SingleSelectFieldToMultipleSelectFieldConverter()
         )
         field_converter_registry.register(FormulaFieldConverter())
+        field_converter_registry.register(FormViewEditRowFieldConverter())
         field_converter_registry.register(AutonumberFieldConverter())
         field_converter_registry.register(PasswordFieldConverter())
 
@@ -768,6 +776,8 @@ class DatabaseConfig(AppConfig):
 
         from baserow.contrib.database.views.operations import (
             CanReceiveNotificationOnSubmitFormViewOperationType,
+            ReadViewDefaultValuesOperationType,
+            UpdateViewDefaultValuesOperationType,
             UpdateViewFieldOptionsOperationType,
         )
 
@@ -830,6 +840,7 @@ class DatabaseConfig(AppConfig):
             CreateViewFilterOperationType,
             CreateViewGroupByOperationType,
             CreateViewOperationType,
+            CreateViewRowCommentOperationType,
             CreateViewRowOperationType,
             CreateViewSortOperationType,
             DeleteViewDecorationOperationType,
@@ -837,16 +848,20 @@ class DatabaseConfig(AppConfig):
             DeleteViewFilterOperationType,
             DeleteViewGroupByOperationType,
             DeleteViewOperationType,
+            DeleteViewRowCommentOperationType,
             DeleteViewRowOperationType,
             DeleteViewSortOperationType,
             DuplicateViewOperationType,
             ListAggregationsViewOperationType,
             ListViewDecorationOperationType,
+            ListViewFieldsOperationType,
             ListViewFilterOperationType,
             ListViewGroupByOperationType,
+            ListViewRowsOperationType,
             ListViewsOperationType,
             ListViewSortOperationType,
             OrderViewsOperationType,
+            ReadAdjacentViewRowOperationType,
             ReadAggregationsViewOperationType,
             ReadViewDecorationOperationType,
             ReadViewFieldOptionsOperationType,
@@ -854,16 +869,19 @@ class DatabaseConfig(AppConfig):
             ReadViewFilterOperationType,
             ReadViewGroupByOperationType,
             ReadViewOperationType,
+            ReadViewRowCommentsOperationType,
             ReadViewRowOperationType,
             ReadViewsOrderOperationType,
             ReadViewSortOperationType,
             RestoreViewOperationType,
+            RestoreViewRowCommentOperationType,
             UpdateViewDecorationOperationType,
             UpdateViewFilterGroupOperationType,
             UpdateViewFilterOperationType,
             UpdateViewGroupByOperationType,
             UpdateViewOperationType,
             UpdateViewPublicOperationType,
+            UpdateViewRowCommentOperationType,
             UpdateViewRowOperationType,
             UpdateViewSlugOperationType,
             UpdateViewSortOperationType,
@@ -878,9 +896,17 @@ class DatabaseConfig(AppConfig):
         )
 
         operation_type_registry.register(ReadViewRowOperationType())
+        operation_type_registry.register(ReadAdjacentViewRowOperationType())
+        operation_type_registry.register(ListViewFieldsOperationType())
+        operation_type_registry.register(ListViewRowsOperationType())
         operation_type_registry.register(CreateViewRowOperationType())
         operation_type_registry.register(UpdateViewRowOperationType())
         operation_type_registry.register(DeleteViewRowOperationType())
+        operation_type_registry.register(ReadViewRowCommentsOperationType())
+        operation_type_registry.register(CreateViewRowCommentOperationType())
+        operation_type_registry.register(UpdateViewRowCommentOperationType())
+        operation_type_registry.register(DeleteViewRowCommentOperationType())
+        operation_type_registry.register(RestoreViewRowCommentOperationType())
         operation_type_registry.register(CreateTableDatabaseTableOperationType())
         operation_type_registry.register(ListTablesDatabaseTableOperationType())
         operation_type_registry.register(OrderTablesDatabaseTableOperationType())
@@ -907,6 +933,8 @@ class DatabaseConfig(AppConfig):
         operation_type_registry.register(DeleteRelatedLinkRowFieldOperationType())
         operation_type_registry.register(DuplicateFieldOperationType())
         operation_type_registry.register(UpdateViewFieldOptionsOperationType())
+        operation_type_registry.register(ReadViewDefaultValuesOperationType())
+        operation_type_registry.register(UpdateViewDefaultValuesOperationType())
         operation_type_registry.register(WriteFieldValuesOperationType())
         operation_type_registry.register(SubmitAnonymousFieldValuesOperationType())
         operation_type_registry.register(DeleteViewSortOperationType())
@@ -1027,20 +1055,44 @@ class DatabaseConfig(AppConfig):
         notification_type_registry.register(WebhookDeactivatedNotificationType())
         notification_type_registry.register(WebhookPayloadTooLargeNotificationType())
 
-        from baserow.contrib.database.mcp.rows.tools import (
-            CreateRowMcpTool,
-            DeleteRowMcpTool,
-            ListRowsMcpTool,
-            UpdateRowMcpTool,
+        from baserow.contrib.database.mcp.fields.tools import (
+            CreateFieldsMcpTool,
+            DeleteFieldsMcpTool,
+            UpdateFieldsMcpTool,
         )
-        from baserow.contrib.database.mcp.table.tools import ListTablesMcpTool
+        from baserow.contrib.database.mcp.rows.tools import (
+            CreateRowsMcpTool,
+            DeleteRowsMcpTool,
+            ListRowsMcpTool,
+            UpdateRowsMcpTool,
+        )
+        from baserow.contrib.database.mcp.table.tools import (
+            CreateDatabaseMcpTool,
+            CreateTableMcpTool,
+            DeleteTableMcpTool,
+            GetTableSchemaMcpTool,
+            ListDatabasesMcpTool,
+            ListTablesMcpTool,
+            UpdateTableMcpTool,
+        )
         from baserow.core.mcp.registries import mcp_tool_registry
 
+        mcp_tool_registry.register(ListDatabasesMcpTool())
         mcp_tool_registry.register(ListTablesMcpTool())
+        mcp_tool_registry.register(GetTableSchemaMcpTool())
         mcp_tool_registry.register(ListRowsMcpTool())
-        mcp_tool_registry.register(CreateRowMcpTool())
-        mcp_tool_registry.register(UpdateRowMcpTool())
-        mcp_tool_registry.register(DeleteRowMcpTool())
+        mcp_tool_registry.register(CreateRowsMcpTool())
+        mcp_tool_registry.register(UpdateRowsMcpTool())
+        mcp_tool_registry.register(DeleteRowsMcpTool())
+        # Disabled (enabled=False) until users can control tool
+        # availability through the UI.
+        mcp_tool_registry.register(CreateDatabaseMcpTool())
+        mcp_tool_registry.register(CreateTableMcpTool())
+        mcp_tool_registry.register(UpdateTableMcpTool())
+        mcp_tool_registry.register(DeleteTableMcpTool())
+        mcp_tool_registry.register(CreateFieldsMcpTool())
+        mcp_tool_registry.register(UpdateFieldsMcpTool())
+        mcp_tool_registry.register(DeleteFieldsMcpTool())
 
         from baserow.contrib.database.rows.history_providers import (
             CreateRowHistoryProvider,

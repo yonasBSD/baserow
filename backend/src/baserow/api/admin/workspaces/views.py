@@ -7,9 +7,10 @@ from rest_framework.permissions import IsAdminUser
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from baserow.api.admin.views import AdminListingView
+from baserow.api.admin.views import AdminListingView, APIListingView
 from baserow.api.decorators import map_exceptions
 from baserow.api.errors import ERROR_GROUP_DOES_NOT_EXIST
+from baserow.api.pagination import PageNumberPaginationWithApproximateCount
 from baserow.api.schemas import get_error_schema
 from baserow.core.admin.workspaces.exceptions import CannotDeleteATemplateGroupError
 from baserow.core.admin.workspaces.handler import WorkspacesAdminHandler
@@ -19,11 +20,15 @@ from baserow.core.models import Workspace
 from baserow.core.usage.handler import UsageHandler
 
 from .errors import ERROR_CANNOT_DELETE_A_TEMPLATE_GROUP
-from .serializers import WorkspacesAdminResponseSerializer
+from .serializers import (
+    AdminWorkspaceOptionsSerializer,
+    WorkspacesAdminResponseSerializer,
+)
 
 
 class WorkspacesAdminView(AdminListingView):
     serializer_class = WorkspacesAdminResponseSerializer
+    pagination_class = PageNumberPaginationWithApproximateCount
     search_fields = ["id", "name"]
     sort_field_mapping = {
         "id": "id",
@@ -56,6 +61,30 @@ class WorkspacesAdminView(AdminListingView):
         "if the requesting user is staff.",
         **AdminListingView.get_extend_schema_parameters(
             "workspaces", serializer_class, search_fields, sort_field_mapping
+        ),
+    )
+    def get(self, request):
+        return super().get(request)
+
+
+class WorkspaceOptionsAdminView(APIListingView):
+    permission_classes = (IsAdminUser,)
+    serializer_class = AdminWorkspaceOptionsSerializer
+    search_fields = ["name"]
+    default_order_by = "name"
+
+    def get_queryset(self, request):
+        return Workspace.objects.filter(template__isnull=True)
+
+    @extend_schema(
+        tags=["Admin"],
+        operation_id="admin_list_workspaces_as_options",
+        description=(
+            "Lists all workspaces. This endpoint is intended for admin-level "
+            "features that need a workspace dropdown."
+        ),
+        **APIListingView.get_extend_schema_parameters(
+            "workspaces", serializer_class, search_fields, {}
         ),
     )
     def get(self, request):

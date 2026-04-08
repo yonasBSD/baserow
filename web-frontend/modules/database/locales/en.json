@@ -554,14 +554,16 @@
     "EnablePassword": "Restrict access with a password",
     "DisablePassword": "Access is password-protected",
     "ChangePassword": "Change",
-    "notSharedYetText": "Allow anyone to see the data in this view or sync events to your external calendar."
+    "notSharedYetText": "Allow anyone to see the data in this view or sync events to your external calendar.",
+    "shareViewWarningTitle": "Warning"
   },
   "viewGroupByContext": {
     "noGroupByTitle": "You have not yet created any groupings",
     "noGroupByText": "Group rows together by a field.",
     "groupBy": "Group by",
     "thenBy": "Then by",
-    "addGroupBy": "choose a field to group by"
+    "addGroupBy": "choose a field to group by",
+    "hiddenFieldWarning": "One or more group bys reference hidden fields that won't be visible to editors and lower roles."
   },
   "viewGroupBy": {
     "groupBy": "Group | Group by 1 fields | Group by {count} fields"
@@ -571,13 +573,15 @@
     "noSortText": "Sorts allow you to sort rows by a field.",
     "sortBy": "Sort by",
     "thenBy": "Then by",
-    "addSort": "choose a field to sort by"
+    "addSort": "choose a field to sort by",
+    "hiddenFieldWarning": "One or more sorts reference hidden fields that won't be visible to editors and lower roles."
   },
   "viewSort": {
     "sort": "Sort | 1 Sort | {count} Sorts"
   },
   "viewDecorator": {
-    "decorator": "Color | 1 Color | {count} Colors"
+    "decorator": "Color | 1 Color | {count} Colors",
+    "hiddenFieldWarning": "Decorations are removed for editors and lower roles because they may reference hidden fields."
   },
   "viewRotateSlugModal": {
     "title": "Refresh URL",
@@ -631,12 +635,19 @@
   "viewContext": {
     "exportView": "Export view",
     "duplicateView": "Duplicate view",
+    "defaultRowValues": "Default row values",
     "renameView": "Rename view",
     "toPersonal": "To personal",
     "toCollaborative": "To collaborative",
     "webhooks": "Webhooks",
     "importFile": "Import file",
     "deleteView": "Delete view"
+  },
+  "defaultValuesModal": {
+    "title": "Default values for {name}",
+    "setDefaultValue": "Set default value",
+    "removeDefaultValue": "Remove default value",
+    "staticValue": "Static value"
   },
   "deleteViewModal": {
     "title": "Delete {name}",
@@ -1104,6 +1115,10 @@
     "medium": "Medium",
     "large": "Large"
   },
+  "gridViewFreezeHandle": {
+    "freeze": "Freeze 0 columns | Freeze 1 column | Freeze {count} columns",
+    "hoverHint": "Drag to freeze columns"
+  },
   "configureDataSyncModal": {
     "title": "Data sync",
     "syncedFields": "Synced fields",
@@ -1153,5 +1168,19 @@
     "ruleDoesNotExist": "Rule doesn't exist",
     "ruleTypeDoesNotExist": "Rule type doesn't exist",
     "ruleAlreadyExists": "Rule already exists"
+  },
+  "fieldFormViewEditRowSubForm": {
+    "selectFormViewLabel": "Form view",
+    "description": "Each row will get a unique link that opens this form pre-filled with that row's data. Note that everyone with read access to the table and field will be able to edit the row via the form view, also viewers and visitors of a publicly shared view.",
+    "notPublicWarning": "This form view is not publicly shared. The edit link will not work until the form is made public.",
+    "notPublic": "(not public)",
+    "formDoesNotExist": "The selected form does not exist anymore."
+  },
+  "editRowLink": {
+    "editRow": "Edit row"
+  },
+  "rowEditFieldFormViewEditRow": {
+    "copyLink": "Copy link",
+    "noFormView": "No form view configured"
   }
 }

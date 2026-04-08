@@ -12,7 +12,7 @@ def dispatch_node_celery_task(
     node_id: int,
     history_id: int,
     current_iterations: Optional[Dict[int, int]] = None,
-):
+) -> Signature | None:
     from baserow.contrib.automation.nodes.handler import AutomationNodeHandler
 
     # The atomic context should only wrap the dispatch_node() call. If
@@ -37,3 +37,5 @@ def dispatch_node_celery_task(
     # by a worker (which again calls dispatch_node_celery_task).
     if isinstance(result, Signature):
         return self.replace(result)
+
+    return None

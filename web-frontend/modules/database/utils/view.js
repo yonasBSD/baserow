@@ -80,19 +80,17 @@ export function sortFieldsByOrderAndIdFunction(
  */
 export function filterVisibleFieldsFunction(fieldOptions) {
   return (field) => {
-    const exists = Object.prototype.hasOwnProperty.call(fieldOptions, field.id)
-    return !exists || !fieldOptions[field.id].hidden
+    const options = fieldOptions[field.id]
+    return options && !options.hidden
   }
 }
 
 /**
- * Returns only fields that are visible (not hidden).
+ * Returns only fields that are hidden (not visible).
  */
 export function filterHiddenFieldsFunction(fieldOptions) {
-  return (field) => {
-    const exists = Object.prototype.hasOwnProperty.call(fieldOptions, field.id)
-    return exists && fieldOptions[field.id].hidden
-  }
+  const isFieldVisible = filterVisibleFieldsFunction(fieldOptions)
+  return (field) => !isFieldVisible(field)
 }
 
 /**
@@ -324,14 +322,13 @@ export const createFiltersTree = (filterType, filters, filterGroups) => {
  * view.
  */
 export const matchSearchFilters = (
+  $registry,
   filterType,
   filters,
   filterGroups,
   fields,
   values
 ) => {
-  const { $registry } = useNuxtApp()
-
   // If there aren't any filters then it is not possible to check if the row
   // matches any of the filters, so we can mark it as valid.
   if (filters.length === 0) {

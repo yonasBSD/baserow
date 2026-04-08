@@ -83,7 +83,7 @@ export default {
       return moment.utc(value).format('MMM Do YYYY [at] H:mm')
     },
     formatSize(size) {
-      return formatFileSize(size)
+      return formatFileSize(this.$t, this.$i18n.locale, size)
     },
   },
 }

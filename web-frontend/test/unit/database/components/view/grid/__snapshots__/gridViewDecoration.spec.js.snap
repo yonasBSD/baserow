@@ -149,18 +149,6 @@ exports[`GridView component with decoration > Default component with first_cell 
         
       </div>
     </div>
-    <div
-      style="display: none;"
-    >
-      <div
-        class="grid-view__field-dragging"
-        style="width: 0px; left: 0px;"
-      />
-      <div
-        class="grid-view__field-target"
-        style="left: 0px;"
-      />
-    </div>
   </div>
   <div
     class="grid-view__divider"
@@ -177,7 +165,7 @@ exports[`GridView component with decoration > Default component with first_cell 
     
     <div
       class="grid-view__inner"
-      style="min-width: 800px;"
+      style="min-width: 600px;"
     >
       <div
         class="grid-view__head"
@@ -276,51 +264,6 @@ exports[`GridView component with decoration > Default component with first_cell 
             />
           </div>
         </div>
-        <div
-          class="grid-view__column"
-          filters=""
-          style="width: 200px;"
-        >
-          <div
-            class="grid-view__description"
-          >
-            <div
-              class="grid-view__description-icon-container"
-            >
-              <i
-                class="grid-view__description-icon iconoir-text"
-              />
-              <!--v-if-->
-            </div>
-            <div
-              class="grid-view__description-name"
-              title="Address"
-            >
-              <span>
-                Address
-              </span>
-            </div>
-            <!--v-if-->
-            <span
-              class="grid-view__description-options"
-            >
-              
-              <!--v-if-->
-              
-              <!--v-if-->
-              <a
-                class="grid-view__description-icon-trigger"
-              >
-                <i
-                  class="iconoir-nav-arrow-down"
-                />
-              </a>
-            </span>
-            <div
-              class="grid-view__description-width"
-            />
-          </div>
-        </div>
         
         <div
           class="grid-view__column"
@@ -344,7 +287,7 @@ exports[`GridView component with decoration > Default component with first_cell 
         >
           <div
             class="grid-view__placeholder"
-            style="height: 66px; width: 600px;"
+            style="height: 66px; width: 400px;"
           >
             <!--v-if-->
             
@@ -355,10 +298,6 @@ exports[`GridView component with decoration > Default component with first_cell 
             <div
               class="grid-view__placeholder-column"
               style="left: 399px;"
-            />
-            <div
-              class="grid-view__placeholder-column"
-              style="left: 599px;"
             />
             
           </div>
@@ -421,11 +360,11 @@ exports[`GridView component with decoration > Default component with first_cell 
           </div>
           <div
             class="grid-view__row"
-            style="width: 600px; height: 33px;"
+            style="width: 400px; height: 33px;"
           >
             <div
               class="grid-view__column"
-              style="width: 600px; height: 33px;"
+              style="width: 400px; height: 33px;"
             >
               <a
                 class="grid-view__add-row"
@@ -473,37 +412,22 @@ exports[`GridView component with decoration > Default component with first_cell 
             </div>
           </div>
         </div>
-        <div
-          style="width: 200px;"
-        >
-          <div
-            class="grid-view-aggregation"
-          >
-            <div
-              class="grid-view-aggregation__empty"
-            >
-              <i
-                class="grid-view-aggregation__empty-icon iconoir-plus"
-              />
-               common.summarize
-            </div>
-          </div>
-        </div>
         
       </div>
     </div>
+  </div>
+  <div
+    class="grid-view__field-dragging-container"
+    style="left: 0px; right: 0px; display: none;"
+  >
     <div
-      style="display: none;"
-    >
-      <div
-        class="grid-view__field-dragging"
-        style="width: 0px; left: 0px;"
-      />
-      <div
-        class="grid-view__field-target"
-        style="left: 0px;"
-      />
-    </div>
+      class="grid-view__field-dragging"
+      style="width: 0px; left: 0px;"
+    />
+    <div
+      class="grid-view__field-target"
+      style="left: 0px;"
+    />
   </div>
   <div
     class="grid-view__row-dragging-container"
@@ -511,11 +435,11 @@ exports[`GridView component with decoration > Default component with first_cell 
   >
     <div
       class="grid-view__row-dragging"
-      style="width: 672px; top: 0px;"
+      style="width: 472px; top: 0px;"
     />
     <div
       class="grid-view__row-target"
-      style="width: 672px; top: 0px;"
+      style="width: 472px; top: 0px;"
     />
   </div>
 </div>
@@ -672,18 +596,6 @@ exports[`GridView component with decoration > Default component with row wrapper
         
       </div>
     </div>
-    <div
-      style="display: none;"
-    >
-      <div
-        class="grid-view__field-dragging"
-        style="width: 0px; left: 0px;"
-      />
-      <div
-        class="grid-view__field-target"
-        style="left: 0px;"
-      />
-    </div>
   </div>
   <div
     class="grid-view__divider"
@@ -700,7 +612,7 @@ exports[`GridView component with decoration > Default component with row wrapper
     
     <div
       class="grid-view__inner"
-      style="min-width: 800px;"
+      style="min-width: 600px;"
     >
       <div
         class="grid-view__head"
@@ -799,51 +711,6 @@ exports[`GridView component with decoration > Default component with row wrapper
             />
           </div>
         </div>
-        <div
-          class="grid-view__column"
-          filters=""
-          style="width: 200px;"
-        >
-          <div
-            class="grid-view__description"
-          >
-            <div
-              class="grid-view__description-icon-container"
-            >
-              <i
-                class="grid-view__description-icon iconoir-text"
-              />
-              <!--v-if-->
-            </div>
-            <div
-              class="grid-view__description-name"
-              title="Address"
-            >
-              <span>
-                Address
-              </span>
-            </div>
-            <!--v-if-->
-            <span
-              class="grid-view__description-options"
-            >
-              
-              <!--v-if-->
-              
-              <!--v-if-->
-              <a
-                class="grid-view__description-icon-trigger"
-              >
-                <i
-                  class="iconoir-nav-arrow-down"
-                />
-              </a>
-            </span>
-            <div
-              class="grid-view__description-width"
-            />
-          </div>
-        </div>
         
         <div
           class="grid-view__column"
@@ -867,7 +734,7 @@ exports[`GridView component with decoration > Default component with row wrapper
         >
           <div
             class="grid-view__placeholder"
-            style="height: 66px; width: 600px;"
+            style="height: 66px; width: 400px;"
           >
             <!--v-if-->
             
@@ -878,10 +745,6 @@ exports[`GridView component with decoration > Default component with row wrapper
             <div
               class="grid-view__placeholder-column"
               style="left: 399px;"
-            />
-            <div
-              class="grid-view__placeholder-column"
-              style="left: 599px;"
             />
             
           </div>
@@ -952,11 +815,11 @@ exports[`GridView component with decoration > Default component with row wrapper
           </div>
           <div
             class="grid-view__row"
-            style="width: 600px; height: 33px;"
+            style="width: 400px; height: 33px;"
           >
             <div
               class="grid-view__column"
-              style="width: 600px; height: 33px;"
+              style="width: 400px; height: 33px;"
             >
               <a
                 class="grid-view__add-row"
@@ -1004,37 +867,22 @@ exports[`GridView component with decoration > Default component with row wrapper
             </div>
           </div>
         </div>
-        <div
-          style="width: 200px;"
-        >
-          <div
-            class="grid-view-aggregation"
-          >
-            <div
-              class="grid-view-aggregation__empty"
-            >
-              <i
-                class="grid-view-aggregation__empty-icon iconoir-plus"
-              />
-               common.summarize
-            </div>
-          </div>
-        </div>
         
       </div>
     </div>
+  </div>
+  <div
+    class="grid-view__field-dragging-container"
+    style="left: 0px; right: 0px; display: none;"
+  >
     <div
-      style="display: none;"
-    >
-      <div
-        class="grid-view__field-dragging"
-        style="width: 0px; left: 0px;"
-      />
-      <div
-        class="grid-view__field-target"
-        style="left: 0px;"
-      />
-    </div>
+      class="grid-view__field-dragging"
+      style="width: 0px; left: 0px;"
+    />
+    <div
+      class="grid-view__field-target"
+      style="left: 0px;"
+    />
   </div>
   <div
     class="grid-view__row-dragging-container"
@@ -1042,11 +890,11 @@ exports[`GridView component with decoration > Default component with row wrapper
   >
     <div
       class="grid-view__row-dragging"
-      style="width: 672px; top: 0px;"
+      style="width: 472px; top: 0px;"
     />
     <div
       class="grid-view__row-target"
-      style="width: 672px; top: 0px;"
+      style="width: 472px; top: 0px;"
     />
   </div>
 </div>
@@ -1195,18 +1043,6 @@ exports[`GridView component with decoration > Default component with unavailable
         
       </div>
     </div>
-    <div
-      style="display: none;"
-    >
-      <div
-        class="grid-view__field-dragging"
-        style="width: 0px; left: 0px;"
-      />
-      <div
-        class="grid-view__field-target"
-        style="left: 0px;"
-      />
-    </div>
   </div>
   <div
     class="grid-view__divider"
@@ -1223,7 +1059,7 @@ exports[`GridView component with decoration > Default component with unavailable
     
     <div
       class="grid-view__inner"
-      style="min-width: 800px;"
+      style="min-width: 600px;"
     >
       <div
         class="grid-view__head"
@@ -1322,51 +1158,6 @@ exports[`GridView component with decoration > Default component with unavailable
             />
           </div>
         </div>
-        <div
-          class="grid-view__column"
-          filters=""
-          style="width: 200px;"
-        >
-          <div
-            class="grid-view__description"
-          >
-            <div
-              class="grid-view__description-icon-container"
-            >
-              <i
-                class="grid-view__description-icon iconoir-text"
-              />
-              <!--v-if-->
-            </div>
-            <div
-              class="grid-view__description-name"
-              title="Address"
-            >
-              <span>
-                Address
-              </span>
-            </div>
-            <!--v-if-->
-            <span
-              class="grid-view__description-options"
-            >
-              
-              <!--v-if-->
-              
-              <!--v-if-->
-              <a
-                class="grid-view__description-icon-trigger"
-              >
-                <i
-                  class="iconoir-nav-arrow-down"
-                />
-              </a>
-            </span>
-            <div
-              class="grid-view__description-width"
-            />
-          </div>
-        </div>
         
         <div
           class="grid-view__column"
@@ -1390,7 +1181,7 @@ exports[`GridView component with decoration > Default component with unavailable
         >
           <div
             class="grid-view__placeholder"
-            style="height: 66px; width: 600px;"
+            style="height: 66px; width: 400px;"
           >
             <!--v-if-->
             
@@ -1401,10 +1192,6 @@ exports[`GridView component with decoration > Default component with unavailable
             <div
               class="grid-view__placeholder-column"
               style="left: 399px;"
-            />
-            <div
-              class="grid-view__placeholder-column"
-              style="left: 599px;"
             />
             
           </div>
@@ -1467,11 +1254,11 @@ exports[`GridView component with decoration > Default component with unavailable
           </div>
           <div
             class="grid-view__row"
-            style="width: 600px; height: 33px;"
+            style="width: 400px; height: 33px;"
           >
             <div
               class="grid-view__column"
-              style="width: 600px; height: 33px;"
+              style="width: 400px; height: 33px;"
             >
               <a
                 class="grid-view__add-row"
@@ -1519,37 +1306,22 @@ exports[`GridView component with decoration > Default component with unavailable
             </div>
           </div>
         </div>
-        <div
-          style="width: 200px;"
-        >
-          <div
-            class="grid-view-aggregation"
-          >
-            <div
-              class="grid-view-aggregation__empty"
-            >
-              <i
-                class="grid-view-aggregation__empty-icon iconoir-plus"
-              />
-               common.summarize
-            </div>
-          </div>
-        </div>
         
       </div>
     </div>
+  </div>
+  <div
+    class="grid-view__field-dragging-container"
+    style="left: 0px; right: 0px; display: none;"
+  >
     <div
-      style="display: none;"
-    >
-      <div
-        class="grid-view__field-dragging"
-        style="width: 0px; left: 0px;"
-      />
-      <div
-        class="grid-view__field-target"
-        style="left: 0px;"
-      />
-    </div>
+      class="grid-view__field-dragging"
+      style="width: 0px; left: 0px;"
+    />
+    <div
+      class="grid-view__field-target"
+      style="left: 0px;"
+    />
   </div>
   <div
     class="grid-view__row-dragging-container"
@@ -1557,11 +1329,11 @@ exports[`GridView component with decoration > Default component with unavailable
   >
     <div
       class="grid-view__row-dragging"
-      style="width: 672px; top: 0px;"
+      style="width: 472px; top: 0px;"
     />
     <div
       class="grid-view__row-target"
-      style="width: 672px; top: 0px;"
+      style="width: 472px; top: 0px;"
     />
   </div>
 </div>

@@ -44,6 +44,7 @@ from .constants import (
     IMPORT_SERIALIZED_IMPORTING_TABLE_DATA,
     IMPORT_SERIALIZED_IMPORTING_TABLE_STRUCTURE,
 )
+from .data_providers.registries import database_data_provider_type_registry
 from .data_sync.registries import data_sync_type_registry
 from .db.atomic import read_repeatable_single_database_atomic_transaction
 from .export_serialized import DatabaseExportSerializedStructure
@@ -71,6 +72,7 @@ class DatabaseApplicationType(ApplicationType):
     # Mark the request serializer field names as empty, otherwise
     # the polymorphic request serializer will try and serialize tables.
     request_serializer_field_names = []
+    data_provider_type_registry = database_data_provider_type_registry
 
     # Database applications are imported first.
     import_application_priority = 2
@@ -121,12 +123,16 @@ class DatabaseApplicationType(ApplicationType):
         for table in tables:
             fields = table.field_set.all()
             serialized_fields = []
+            specific_fields = []
             for f in fields:
                 field = f.specific
+                specific_fields.append(field)
                 field_type = field_type_registry.get_by_model(field)
                 serialized_fields.append(field_type.export_serialized(field))
 
-            table_cache: Dict[str, Any] = {}
+            table_cache: Dict[str, Any] = {
+                f"fields_by_id_{table.id}": {f.id: f for f in specific_fields},
+            }
             workspace = table.get_root()
             if workspace is not None:
                 table_cache["workspace_id"] = workspace.id
@@ -244,6 +250,7 @@ class DatabaseApplicationType(ApplicationType):
                 "view_set__viewsort_set",
                 "view_set__viewgroupby_set",
                 "view_set__viewdecoration_set",
+                "view_set__view_default_values",
                 "data_sync__synced_properties",
                 Prefetch(
                     "field_rules", queryset=specific_queryset(FieldRule.objects.all())
@@ -936,10 +943,16 @@ class DatabaseApplicationType(ApplicationType):
 
         table = serialized_table["_object"]
         table_name = serialized_table["name"]
+        cache: Dict[str, Any] = {}
         for serialized_view in serialized_table["views"]:
             view_type = view_type_registry.get(serialized_view["type"])
             view_type.import_serialized(
-                table, serialized_view, import_export_config, id_mapping, files_zip
+                table,
+                serialized_view,
+                import_export_config,
+                id_mapping,
+                cache,
+                files_zip,
             )
             progress.increment(
                 state=f"{IMPORT_SERIALIZED_IMPORTING_TABLE_STRUCTURE}{table_name}"

@@ -69,6 +69,7 @@ from .exceptions import (
     FieldTypeAlreadyRegistered,
     FieldTypeDoesNotExist,
     IncompatibleField,
+    InvalidDefaultValueFunction,
     ReadOnlyFieldHasNoInternalDbValueError,
 )
 from .fields import DurationFieldUsingPostgresFormatting
@@ -236,6 +237,31 @@ class FieldType(
         if self._db_column_fields is not None:
             return self._db_column_fields
         return set(self.allowed_fields)
+
+    def get_supported_default_value_functions(self) -> list:
+        """
+        Returns a list of function names that this field type supports for view default
+        values. For example, a date field might support "now" to insert the current
+        timestamp at row creation time.
+
+        :return: A list of supported function name strings.
+        """
+
+        return []
+
+    def resolve_default_value_function(self, function_name: str, field: Field) -> Any:
+        """
+        Resolves a default value function to an actual value at row creation time. The
+        function_name must be one of the strings returned by
+        get_supported_default_value_functions().
+
+        :param function_name: The function name to resolve (e.g. "now").
+        :param field: The field instance.
+        :return: The resolved value.
+        :raises InvalidDefaultValueFunction: If the function is not supported.
+        """
+
+        raise InvalidDefaultValueFunction(function_name, self.type)
 
     def prepare_value_for_db(self, instance: Field, value: Any) -> Any:
         """
@@ -1227,6 +1253,50 @@ class FieldType(
 
         setattr(row, field_name, value)
 
+    def export_serialized_default_value(
+        self,
+        value: Any,
+        field: "Field",
+        workspace_id: int,
+        cache: Dict,
+    ) -> Any:
+        """
+        Hook that is called when exporting a ViewDefaultValue.value during a
+        serialized export. Can be used to convert internal IDs to portable
+        representations (e.g. user IDs to email addresses).
+
+        :param value: The raw JSON default value to export.
+        :param field: The field instance the default value belongs to.
+        :param workspace_id: The ID of the workspace being exported.
+        :param cache: A cache dict shared across the export to avoid repeated
+            queries.
+        :return: The portable representation of the value.
+        """
+
+        return value
+
+    def import_serialized_default_value(
+        self,
+        value: Any,
+        id_mapping: Dict[str, Any],
+        workspace_id: int,
+        cache: Dict,
+    ) -> Any:
+        """
+        Hook that is called just before the ViewDefaultValue.value is set when doing a
+        serialized import. Can be used to potentially remap IDs like for example with a
+        single select field.
+
+        :param value: The raw JSON default value to remap.
+        :param id_mapping: The map of exported ids to newly created ids.
+        :param workspace_id: The ID of the workspace being imported into.
+        :param cache: A cache dict shared across the import to avoid repeated
+            queries.
+        :return: The value with remapped IDs.
+        """
+
+        return value
+
     def get_export_value(
         self, value: Any, field_object: "FieldObject", rich_value: bool = False
     ) -> Any:
@@ -2127,31 +2197,29 @@ class ManyToManyGroupByMixin:
         reversed_field = through_model._meta.get_fields()[1].name
         related_field = through_model._meta.get_fields()[2].name
 
-        if field_name not in cte:
-            row_ids = [row.id for row in rows]
-            # Improve performance of the query by creating a CTE with all the
-            # relationships of the field to group by. This is significantly faster than
-            # doing this every row in a separate subquery.
-            aggregated_cte = (
-                through_model.objects.filter(**{f"{reversed_field}_id__in": row_ids})
-                .values(f"{reversed_field}_id")
-                .annotate(
-                    res=ArrayAgg(
-                        F(f"{related_field}_id"),
-                        filter=Q(**{f"{related_field}_id__isnull": False}),
-                        order_by=self.get_group_by_aggregated_order(related_field),
-                    )
-                )
-            )
-            cte[field_name] = With(aggregated_cte, name=f"{field_name}_cte")
-
         filters = {field_name: value}
+        # Use a correlated subquery instead of a CTE so that the database
+        # computes each row's linked-ID array via an index lookup on the
+        # through table, without materialising the entire relationship set
+        # up-front. This is correct for all rows in the base_queryset
+        # (including off-page ones) and avoids dragging enhance_by_fields()
+        # joins into a CTE filter subquery.
         annotations = {
             field_name: Coalesce(
                 Subquery(
-                    cte[field_name]
-                    .queryset()
-                    .filter(**{f"{reversed_field}_id": OuterRef("id")})
+                    through_model.objects.filter(
+                        **{
+                            f"{reversed_field}_id": OuterRef("id"),
+                            f"{related_field}_id__isnull": False,
+                        }
+                    )
+                    .values(f"{reversed_field}_id")
+                    .annotate(
+                        res=ArrayAgg(
+                            F(f"{related_field}_id"),
+                            order_by=self.get_group_by_aggregated_order(related_field),
+                        )
+                    )
                     .values("res")[:1]
                 ),
                 Value([], output_field=ArrayField(IntegerField())),

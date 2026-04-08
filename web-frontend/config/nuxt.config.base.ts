@@ -81,6 +81,22 @@ export default defineNuxtConfig({
     },
   },
   vite: {
+    css: {
+      preprocessorOptions: {
+        scss: {
+          // TODO: Migrate all @import rules to @use/@forward (Dart Sass 3.0 will remove @import).
+          //  Also fix global-builtin (unquote → string.unquote in colors.module.scss)
+          //  and if-function (old if() syntax in abstracts/_helpers.scss).
+          //  See https://sass-lang.com/d/import for the migration guide and automated migrator.
+          silenceDeprecations: [
+            'import',
+            'global-builtin',
+            'if-function',
+            'color-functions',
+          ],
+        },
+      },
+    },
     plugins: [
       nodePolyfills({
         include: ['util'],
@@ -98,6 +114,14 @@ export default defineNuxtConfig({
     },
     server: {
       sourcemapIgnoreList: (sourcePath) => sourcePath.includes('node_modules'),
+      watch: {
+        ignored: [
+          '**/node_modules/**',
+          '**/.git/**',
+          '**/.nuxt/**',
+          '**/.claude/**',
+        ],
+      },
     },
     optimizeDeps: {
       // Pre-bundle moment-guess to avoid missing source map warning

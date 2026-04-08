@@ -19,7 +19,6 @@ from baserow.api.schemas import CLIENT_SESSION_ID_SCHEMA_PARAMETER, get_error_sc
 from baserow.api.serializers import get_example_pagination_serializer_class
 from baserow.contrib.automation.api.workflows.errors import (
     ERROR_AUTOMATION_WORKFLOW_DOES_NOT_EXIST,
-    ERROR_AUTOMATION_WORKFLOW_NAME_NOT_UNIQUE,
     ERROR_AUTOMATION_WORKFLOW_NOT_IN_AUTOMATION,
 )
 from baserow.contrib.automation.api.workflows.serializers import (
@@ -38,7 +37,6 @@ from baserow.contrib.automation.workflows.actions import (
 )
 from baserow.contrib.automation.workflows.exceptions import (
     AutomationWorkflowDoesNotExist,
-    AutomationWorkflowNameNotUnique,
     AutomationWorkflowNotInAutomation,
 )
 from baserow.contrib.automation.workflows.job_types import (
@@ -75,7 +73,6 @@ class AutomationWorkflowsView(APIView):
             400: get_error_schema(
                 [
                     "ERROR_REQUEST_BODY_VALIDATION",
-                    "ERROR_AUTOMATION_WORKFLOW_NAME_NOT_UNIQUE",
                 ]
             ),
             404: get_error_schema(["ERROR_APPLICATION_DOES_NOT_EXIST"]),
@@ -85,7 +82,6 @@ class AutomationWorkflowsView(APIView):
     @map_exceptions(
         {
             ApplicationDoesNotExist: ERROR_APPLICATION_DOES_NOT_EXIST,
-            AutomationWorkflowNameNotUnique: ERROR_AUTOMATION_WORKFLOW_NAME_NOT_UNIQUE,
         }
     )
     @validate_body(CreateAutomationWorkflowSerializer, return_validated=True)
@@ -152,7 +148,6 @@ class AutomationWorkflowView(APIView):
             400: get_error_schema(
                 [
                     "ERROR_REQUEST_BODY_VALIDATION",
-                    "ERROR_AUTOMATION_WORKFLOW_NAME_NOT_UNIQUE",
                 ]
             ),
             404: get_error_schema(
@@ -167,7 +162,6 @@ class AutomationWorkflowView(APIView):
     @map_exceptions(
         {
             ApplicationDoesNotExist: ERROR_APPLICATION_DOES_NOT_EXIST,
-            AutomationWorkflowNameNotUnique: ERROR_AUTOMATION_WORKFLOW_NAME_NOT_UNIQUE,
             AutomationWorkflowDoesNotExist: ERROR_AUTOMATION_WORKFLOW_DOES_NOT_EXIST,
         }
     )
@@ -385,6 +379,7 @@ class AsyncPublishAutomationWorkflowView(APIView):
             400: get_error_schema(
                 [
                     "ERROR_REQUEST_BODY_VALIDATION",
+                    "ERROR_MAX_JOB_COUNT_EXCEEDED",
                 ]
             ),
             404: get_error_schema(["ERROR_AUTOMATION_WORKFLOW_DOES_NOT_EXIST"]),
@@ -394,6 +389,7 @@ class AsyncPublishAutomationWorkflowView(APIView):
     @map_exceptions(
         {
             AutomationWorkflowDoesNotExist: ERROR_AUTOMATION_WORKFLOW_DOES_NOT_EXIST,
+            MaxJobCountExceeded: ERROR_MAX_JOB_COUNT_EXCEEDED,
         }
     )
     def post(self, request, workflow_id: int):

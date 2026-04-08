@@ -12,9 +12,9 @@ from django.contrib.auth.models import AbstractUser, AnonymousUser
 from django.contrib.contenttypes.models import ContentType
 from django.core.cache import cache
 from django.core.exceptions import FieldDoesNotExist, ValidationError
-from django.db import connection
+from django.db import OperationalError, connection
 from django.db import models as django_models
-from django.db.models import Count, Q
+from django.db.models import Count, Q, prefetch_related_objects
 from django.db.models.expressions import OrderBy
 from django.db.models.query import QuerySet
 
@@ -25,7 +25,10 @@ from redis.exceptions import LockNotOwnedError
 
 from baserow.contrib.database.api.utils import get_include_exclude_field_ids
 from baserow.contrib.database.db.schema import safe_django_schema_editor
-from baserow.contrib.database.fields.exceptions import FieldNotInTable
+from baserow.contrib.database.fields.exceptions import (
+    FieldNotInTable,
+    InvalidDefaultValueFunction,
+)
 from baserow.contrib.database.fields.field_filters import (
     AdvancedFilterBuilder,
     FilterBuilder,
@@ -36,8 +39,12 @@ from baserow.contrib.database.fields.operations import ReadFieldOperationType
 from baserow.contrib.database.fields.registries import field_type_registry
 from baserow.contrib.database.rows.handler import RowHandler
 from baserow.contrib.database.search.handler import SearchMode
+from baserow.contrib.database.table.cache import invalidate_table_in_model_cache
 from baserow.contrib.database.table.models import GeneratedTableModel, Table
-from baserow.contrib.database.views.exceptions import ViewOwnershipTypeDoesNotExist
+from baserow.contrib.database.views.exceptions import (
+    ViewOwnershipTypeDoesNotExist,
+    ViewOwnershipTypeNotCompatibleWithViewType,
+)
 from baserow.contrib.database.views.filters import AdHocFilters
 from baserow.contrib.database.views.operations import (
     CreatePublicViewOperationType,
@@ -70,6 +77,7 @@ from baserow.contrib.database.views.operations import (
     ReadViewsOrderOperationType,
     ReadViewSortOperationType,
     UpdateViewDecorationOperationType,
+    UpdateViewDefaultValuesOperationType,
     UpdateViewFieldOptionsOperationType,
     UpdateViewFilterGroupOperationType,
     UpdateViewFilterOperationType,
@@ -110,6 +118,7 @@ from .exceptions import (
     ViewDecorationDoesNotExist,
     ViewDecorationNotSupported,
     ViewDoesNotExist,
+    ViewDoesNotSupportDefaultValues,
     ViewDoesNotSupportFieldOptions,
     ViewDoesNotSupportListingRows,
     ViewFilterDoesNotExist,
@@ -129,8 +138,11 @@ from .exceptions import (
 from .models import (
     DEFAULT_SORT_TYPE_KEY,
     OWNERSHIP_TYPE_COLLABORATIVE,
+    FormView,
+    FormViewFieldOptions,
     View,
     ViewDecoration,
+    ViewDefaultValue,
     ViewFilter,
     ViewFilterGroup,
     ViewGroupBy,
@@ -421,6 +433,56 @@ class ViewIndexingHandler(metaclass=baserow_trace_methods(tracer)):
         schedule_view_index_update(view.pk)
 
     @classmethod
+    def drop_all_indexes_for_table(cls, table_id: int):
+        """
+        Drop every view-level btree index that belongs to *table_id* and
+        clear the persisted ``db_index_name`` so the indexes can later be
+        recreated with the correct (truncated) expressions.
+
+        :param table_id: PK of the database table whose view indexes should
+            be dropped.
+        """
+
+        views_with_index = list(
+            View.objects.filter(
+                table_id=table_id,
+                db_index_name__isnull=False,
+            )
+        )
+
+        index_names = set(view.db_index_name for view in views_with_index)
+
+        if index_names:
+            drop_index_sql = sql.SQL("DROP INDEX IF EXISTS {}").format(
+                sql.SQL(", ").join(
+                    sql.Identifier(index_name) for index_name in index_names
+                )
+            )
+
+            with connection.cursor() as cursor:
+                cursor.execute(drop_index_sql)
+
+        if views_with_index:
+            View.objects.filter(id__in=[v.id for v in views_with_index]).update(
+                db_index_name=None
+            )
+
+    @classmethod
+    def handle_index_row_size_error(cls, table_id: int):
+        """
+        Called when a row INSERT/UPDATE fails because a legacy view index
+        (created before the ``Left()`` truncation was applied) exceeds the
+        btree maximum row size.
+
+        The method drops every view index for the affected table so the
+        write can be retried.
+
+        :param table_id: PK of the database table that triggered the error.
+        """
+
+        cls.drop_all_indexes_for_table(table_id)
+
+    @classmethod
     def create_index_if_not_exists(
         cls,
         view: View,
@@ -444,14 +506,27 @@ class ViewIndexingHandler(metaclass=baserow_trace_methods(tracer)):
         if other_view_using_index.exists() or cls.does_index_exist(db_index.name):
             return db_index.name
 
-        with safe_django_schema_editor() as schema_editor:
-            schema_editor.add_index(model, db_index)
-            logger.info(
-                "Created Index {db_index_name} for view {view_pk} of table {view_table_id}",
-                db_index_name=db_index.name,
-                view_pk=view.pk,
-                view_table_id=view.table_id,
-            )
+        try:
+            with safe_django_schema_editor() as schema_editor:
+                schema_editor.add_index(model, db_index)
+                logger.info(
+                    "Created Index {db_index_name} for view {view_pk} of table {view_table_id}",
+                    db_index_name=db_index.name,
+                    view_pk=view.pk,
+                    view_table_id=view.table_id,
+                )
+        except OperationalError as exc:
+            msg = str(exc)
+            if "index" in msg and "size" in msg:
+                logger.warning(
+                    "Failed to create index {db_index_name} for view {view_pk} of "
+                    "table {view_table_id}: {exc}",
+                    db_index_name=db_index.name,
+                    view_pk=view.pk,
+                    view_table_id=view.table_id,
+                    exc=msg,
+                )
+                return None
 
         return db_index.name
 
@@ -565,7 +640,7 @@ class ViewIndexingHandler(metaclass=baserow_trace_methods(tracer)):
             # remove the previous and create the new index
             cls.drop_index_if_unused(view, model)
             if db_index is not None:
-                cls.create_index_if_not_exists(view, model, db_index)
+                new_index_name = cls.create_index_if_not_exists(view, model, db_index)
 
             view.db_index_name = new_index_name
             view.save(update_fields=["db_index_name"])
@@ -583,18 +658,20 @@ class ViewHandler(metaclass=baserow_trace_methods(tracer)):
         sortings: bool = True,
         decorations: bool = True,
         group_bys: bool = True,
+        default_row_values: bool = False,
         limit: int | None = None,
     ) -> Iterable[View]:
         """
         Lists available views for a user/table combination.
 
-        :user: The user on whose behalf we want to return views.
-        :table: The table for which the views should be returned.
-        :_type: The view type to get.
-        :filters: If filters should be prefetched.
-        :sortings: If sorts should be prefetched.
-        :decorations: If view decorations should be prefetched.
-        :limit: To limit the number of returned views.
+        :param user: The user on whose behalf we want to return views.
+        :param table: The table for which the views should be returned.
+        :param _type: The view type to get.
+        :param filters: If filters should be prefetched.
+        :param sortings: If sorts should be prefetched.
+        :param decorations: If view decorations should be prefetched.
+        :param default_row_values: If default row values should be prefetched.
+        :param limit: To limit the number of returned views.
         :return: Iterator over returned views.
         """
 
@@ -626,6 +703,9 @@ class ViewHandler(metaclass=baserow_trace_methods(tracer)):
 
         if group_bys:
             views = views.prefetch_related("viewgroupby_set")
+
+        if default_row_values:
+            views = views.prefetch_related("view_default_values")
 
         if limit:
             views = views[:limit]
@@ -868,6 +948,12 @@ class ViewHandler(metaclass=baserow_trace_methods(tracer)):
 
         workspace = table.database.workspace
 
+        if not view_ownership_type.is_compatible_with_view_type(view_type):
+            raise ViewOwnershipTypeNotCompatibleWithViewType(
+                ownership_type=view_ownership_type_str,
+                view_type=type_name,
+            )
+
         CoreHandler().check_permissions(
             user,
             view_ownership_type.get_operation_to_check_to_create_view().type,
@@ -952,6 +1038,8 @@ class ViewHandler(metaclass=baserow_trace_methods(tracer)):
             "workspace_id": workspace.id,
         }
 
+        prefetch_related_objects([original_view], "view_default_values")
+
         # Use export/import to duplicate the view easily
         serialized = view_type.export_serialized(original_view, config, cache)
 
@@ -977,7 +1065,7 @@ class ViewHandler(metaclass=baserow_trace_methods(tracer)):
             "database_field_select_options": MirrorDict(),
         }
         duplicated_view = view_type.import_serialized(
-            original_view.table, serialized, config, id_mapping
+            original_view.table, serialized, config, id_mapping, {}
         )
 
         if duplicated_view is None:
@@ -3273,6 +3361,11 @@ class ViewHandler(metaclass=baserow_trace_methods(tracer)):
         setattr(view, slug_field, slug)
         view.save()
 
+        table_id = view.table_id
+        # Invalidate the model cache because fields could be depending on that specific
+        # model slug, like the edit row link field.
+        invalidate_table_in_model_cache(table_id)
+
         view_updated.send(self, view=view, user=user, old_view=old_view)
 
         return view
@@ -3350,14 +3443,30 @@ class ViewHandler(metaclass=baserow_trace_methods(tracer)):
 
         return view
 
+    @staticmethod
+    def _get_allowed_form_field_names(model, enabled_field_options):
+        """
+        Return the list of internal field names that are enabled in the given
+        form view field options.
+
+        :param model: The generated table model.
+        :param enabled_field_options: The enabled form view field options.
+        :return: A list of allowed field names.
+        """
+
+        return [
+            model._field_objects[field.field_id]["name"]
+            for field in enabled_field_options
+        ]
+
     def submit_form_view(
         self,
-        user,
-        form,
-        values,
-        model: GeneratedTableModel | None = None,
-        enabled_field_options=None,
-    ):
+        user: AbstractUser,
+        form: FormView,
+        values: Dict[str, Any],
+        model: Optional[Type[GeneratedTableModel]] = None,
+        enabled_field_options: Optional[QuerySet[FormViewFieldOptions]] = None,
+    ) -> GeneratedTableModel:
         """
         Handles when a form is submitted. It will validate the data by checking if
         the required fields are provided and not empty and it will create a new row
@@ -3384,15 +3493,13 @@ class ViewHandler(metaclass=baserow_trace_methods(tracer)):
         if not enabled_field_options:
             enabled_field_options = form.active_field_options
 
-        allowed_field_names = []
-        field_errors = {}
+        allowed_field_names = self._get_allowed_form_field_names(
+            model, enabled_field_options
+        )
 
-        # Loop over all field options, find the name in the model and check if the
-        # required values are provided. If not, a validation error is raised.
+        field_errors = {}
         for field in enabled_field_options:
             field_name = model._field_objects[field.field_id]["name"]
-            allowed_field_names.append(field_name)
-
             if field.is_required() and (
                 field_name not in values
                 or value_is_empty_for_required_form_field(values[field_name])
@@ -3408,6 +3515,50 @@ class ViewHandler(metaclass=baserow_trace_methods(tracer)):
             self, form=form, row=created_row, values=allowed_values, user=user
         )
         return created_row
+
+    def edit_form_view_row(
+        self,
+        user: AbstractUser,
+        form: FormView,
+        row_id: int,
+        values: Dict[str, Any],
+        model: Optional[Type[GeneratedTableModel]] = None,
+        enabled_field_options: Optional[QuerySet[FormViewFieldOptions]] = None,
+    ) -> GeneratedTableModel:
+        """
+        Handles when a row is edited via a form view. Only fields that are enabled
+        in the form view can be updated.
+
+        :param user: The user on whose behalf the row is updated.
+        :param form: The form view used to edit the row.
+        :param row_id: The primary key of the row to update.
+        :param values: The submitted values to update.
+        :param model: If the model is already generated, it can be provided here.
+        :param enabled_field_options: If the enabled field options have already been
+            fetched, they can be provided here.
+        :return: The updated row instance.
+        """
+
+        table = form.table
+
+        if model is None:
+            model = table.get_model()
+
+        if not enabled_field_options:
+            enabled_field_options = form.active_field_options
+
+        allowed_field_names = self._get_allowed_form_field_names(
+            model, enabled_field_options
+        )
+        allowed_values = extract_allowed(values, allowed_field_names)
+
+        updated_rows_data = RowHandler().force_update_rows(
+            user,
+            table,
+            [{"id": row_id, **allowed_values}],
+            model=model,
+        )
+        return updated_rows_data.updated_rows[0]
 
     def restrict_row_for_view(
         self, view: View, serialized_row: Dict[str, Any]
@@ -3708,6 +3859,193 @@ class ViewHandler(metaclass=baserow_trace_methods(tracer)):
             for key, value in view_type.export_prepared_values(view).items()
             if key in changed_allowed_keys
         }
+
+    def get_view_default_values(self, view):
+        """
+        Returns the ViewDefaultValue queryset for the given view.
+
+        :param view: The view to get default values for.
+        :return: QuerySet of ViewDefaultValue records.
+        :raises ViewDoesNotSupportDefaultValues: If the view type doesn't
+            support default values.
+        """
+
+        view_type = view_type_registry.get_by_model(view.specific_class)
+        if not view_type.can_set_default_values:
+            raise ViewDoesNotSupportDefaultValues(
+                f"The view type {view_type.type} does not support default values."
+            )
+
+        return ViewDefaultValue.objects.filter(view_id=view.id)
+
+    def update_view_default_values(self, user, view, items, model=None):
+        """
+        Updates the default values for the given view from a list of item
+        dicts. Each item should contain ``field`` (field ID) and optionally
+        ``enabled``, ``value``, ``function``.
+
+        :param user: The user performing the update.
+        :param view: The view to update default values for.
+        :param items: List of dicts with field, enabled, value, function.
+        :param model: Optional pre-generated table model.
+        :return: QuerySet of updated ViewDefaultValue records.
+        """
+
+        view_type = view_type_registry.get_by_model(view.specific_class)
+        if not view_type.can_set_default_values:
+            raise ViewDoesNotSupportDefaultValues(
+                f"The view type {view_type.type} does not support default values."
+            )
+
+        table = view.table
+        workspace = table.database.workspace
+
+        CoreHandler().check_permissions(
+            user,
+            UpdateViewDefaultValuesOperationType.type,
+            workspace=workspace,
+            context=view,
+        )
+
+        View.objects.select_for_update(of=("self",)).get(id=view.id)
+
+        if model is None:
+            model = table.get_model()
+
+        # Run the same prepare_values step used during row creation so that
+        # field types can perform additional validation (e.g.
+        # NumberFieldType rejecting negative values, SingleSelectFieldType
+        # rejecting unknown option IDs) that the serializer alone does not
+        # catch.
+        raw_values = {}
+        for item in items:
+            field_id = item.get("field")
+            if field_id and item.get("value") is not None:
+                raw_values[f"field_{field_id}"] = item["value"]
+        if raw_values:
+            RowHandler().prepare_values(model._field_objects, raw_values)
+
+        existing_by_field = {
+            default_value.field_id: default_value
+            for default_value in ViewDefaultValue.objects.filter(view_id=view.id)
+        }
+
+        to_create = []
+        to_update = []
+        seen_field_ids = set()
+
+        for item in items:
+            field_id = int(item["field"])
+
+            if field_id not in model._field_objects:
+                raise FieldNotInTable(
+                    f"Field {field_id} does not belong to table {table.id}."
+                )
+
+            seen_field_ids.add(field_id)
+
+            enabled = item.get("enabled", True)
+            value = item.get("value")
+            func_name = item.get("function")
+
+            # Validate function against field type.
+            field_obj = model._field_objects[field_id]
+            if func_name:
+                supported = field_obj["type"].get_supported_default_value_functions()
+                if func_name not in supported:
+                    raise InvalidDefaultValueFunction(func_name, field_obj["type"].type)
+
+            field_type_str = field_obj["type"].type
+
+            if field_id in existing_by_field:
+                record = existing_by_field[field_id]
+                record.enabled = enabled
+                record.function = func_name
+                if value is not None or "value" in item:
+                    record.value = value
+                    record.field_type = field_type_str
+                to_update.append(record)
+            else:
+                to_create.append(
+                    ViewDefaultValue(
+                        view_id=view.id,
+                        field_id=field_id,
+                        enabled=enabled,
+                        function=func_name,
+                        value=value,
+                        field_type=field_type_str,
+                    )
+                )
+
+        if to_create:
+            ViewDefaultValue.objects.bulk_create(to_create)
+
+        if to_update:
+            ViewDefaultValue.objects.bulk_update(
+                to_update, ["enabled", "function", "value", "field_type"]
+            )
+
+        to_delete = [fid for fid in existing_by_field if fid not in seen_field_ids]
+        if to_delete:
+            ViewDefaultValue.objects.filter(
+                view_id=view.id, field_id__in=to_delete
+            ).delete()
+
+        old_view = deepcopy(view)
+        view_updated.send(self, view=view, user=user, old_view=old_view)
+
+        return ViewDefaultValue.objects.filter(view_id=view.id)
+
+    def get_view_default_values_for_row_creation(self, view, model=None):
+        """
+        Lightweight method for the row creation path. Returns a dict of
+        {field_name: resolved_value} for all enabled default fields.
+        Functions like 'now' are resolved to actual values. Stored raw
+        values are used directly since they were validated at save time.
+
+        :param view: The view whose defaults to resolve.
+        :param model: Optional pre-generated table model.
+        :return: Dict mapping field_name to resolved default value.
+        """
+
+        view_type = view_type_registry.get_by_model(view.specific_class)
+        if not view_type.can_set_default_values:
+            return {}
+
+        if model is None:
+            model = view.table.get_model()
+
+        default_values = list(
+            ViewDefaultValue.objects.filter(view_id=view.id, enabled=True)
+        )
+        if not default_values:
+            return {}
+
+        result = {}
+        for default_value in default_values:
+            field_id = default_value.field_id
+            if field_id not in model._field_objects:
+                continue
+
+            field_obj = model._field_objects[field_id]
+            field = field_obj["field"]
+            field_type = field_obj["type"]
+            field_name = field_obj["name"]
+            supported_functions = field_type.get_supported_default_value_functions()
+
+            if default_value.function and default_value.function in supported_functions:
+                result[field_name] = field_type.resolve_default_value_function(
+                    default_value.function, field
+                )
+            elif default_value.value is not None:
+                if (
+                    default_value.field_type
+                    and default_value.field_type != field_type.type
+                ):
+                    continue
+                result[field_name] = default_value.value
+
+        return result
 
 
 class ViewSubscriptionHandler:
