@@ -1456,3 +1456,29 @@ def test_dispatch_node_iterator_with_no_rows(data_fixture):
     # Ensure we never return an empty chain, which would cause
     # self.replace() to crash with an error.
     assert result is None
+
+
+@pytest.mark.django_db
+@patch(f"{NODE_HANDLER_PATH}.logger")
+def test_dispatch_node_with_deleted_node(mock_logger, data_fixture):
+    """
+    In the rare case where a node is deleted between the time a dispatch
+    is queued and when the task actually runs, we should handle this
+    gracefully instead of crashing.
+    """
+
+    data = create_workflow(data_fixture)
+    action_node = data["action_node"]
+    history = data["workflow_history"]
+
+    # delete the node to simulate a race condition
+    action_node_id = action_node.id
+    action_node.delete()
+
+    result = AutomationNodeHandler().dispatch_node(action_node_id, history.id)
+    assert result is None
+    expected_error = (
+        f"Node with ID {action_node_id} was not found. The node was likely "
+        "deleted before the task was executed."
+    )
+    mock_logger.warning.assert_called_once_with(expected_error)
