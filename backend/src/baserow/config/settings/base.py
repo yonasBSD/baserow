@@ -829,16 +829,50 @@ INTEGRATION_ALLOW_SMTP_SERVICE_TO_USE_INSTANCE_SETTINGS = str_to_bool(
 AUTOMATION_HISTORY_PAGE_SIZE_LIMIT = int(
     os.getenv("BASEROW_AUTOMATION_HISTORY_PAGE_SIZE_LIMIT", 100)
 )
-AUTOMATION_WORKFLOW_RATE_LIMIT_MAX_RUNS = int(
-    os.getenv("BASEROW_AUTOMATION_WORKFLOW_RATE_LIMIT_MAX_RUNS", 10)
+_legacy_workflow_rate_limit_max_runs = os.getenv(
+    "BASEROW_AUTOMATION_WORKFLOW_RATE_LIMIT_MAX_RUNS"
 )
-AUTOMATION_WORKFLOW_RATE_LIMIT_CACHE_EXPIRY_SECONDS = int(
-    os.getenv("BASEROW_AUTOMATION_WORKFLOW_RATE_LIMIT_CACHE_EXPIRY_SECONDS", 5)
+_legacy_workflow_rate_limit_window_seconds = os.getenv(
+    "BASEROW_AUTOMATION_WORKFLOW_RATE_LIMIT_CACHE_EXPIRY_SECONDS"
+)
+_automation_workflow_rate_limits_env = os.getenv(
+    "BASEROW_AUTOMATION_WORKFLOW_RATE_LIMITS"
+)
+
+if _automation_workflow_rate_limits_env is not None:
+    _automation_workflow_rate_limit_values = [
+        int(value.strip())
+        for value in _automation_workflow_rate_limits_env.split(",")
+        if value.strip()
+    ]
+elif (
+    _legacy_workflow_rate_limit_max_runs is not None
+    or _legacy_workflow_rate_limit_window_seconds is not None
+):
+    _automation_workflow_rate_limit_values = [
+        int(_legacy_workflow_rate_limit_max_runs or 10),
+        int(_legacy_workflow_rate_limit_window_seconds or 5),
+    ]
+else:
+    _automation_workflow_rate_limit_values = [10, 5, 30, 60 * 5, 100, 60 * 60]
+
+if len(_automation_workflow_rate_limit_values) % 2 != 0:
+    raise ImproperlyConfigured(
+        "BASEROW_AUTOMATION_WORKFLOW_RATE_LIMITS must contain an even number of "
+        "comma-separated integers formatted as max_runs,window_seconds pairs."
+    )
+
+AUTOMATION_WORKFLOW_RATE_LIMITS = tuple(
+    (
+        _automation_workflow_rate_limit_values[index],
+        _automation_workflow_rate_limit_values[index + 1],
+    )
+    for index in range(0, len(_automation_workflow_rate_limit_values), 2)
 )
 AUTOMATION_WORKFLOW_HISTORY_RATE_LIMIT_CACHE_EXPIRY_SECONDS = int(
     os.getenv(
         "BASEROW_AUTOMATION_WORKFLOW_HISTORY_RATE_LIMIT_CACHE_EXPIRY_SECONDS",
-        AUTOMATION_WORKFLOW_RATE_LIMIT_CACHE_EXPIRY_SECONDS,
+        _legacy_workflow_rate_limit_window_seconds or 5,
     )
 )
 AUTOMATION_WORKFLOW_MAX_CONSECUTIVE_ERRORS = int(
@@ -851,7 +885,7 @@ AUTOMATION_WORKFLOW_HISTORY_MAX_DAYS = int(
     os.getenv("BASEROW_AUTOMATION_WORKFLOW_HISTORY_MAX_DAYS", 30)
 )
 AUTOMATION_WORKFLOW_HISTORY_MAX_ENTRIES = int(
-    os.getenv("BASEROW_AUTOMATION_WORKFLOW_HISTORY_MAX_ENTRIES", 50)
+    os.getenv("BASEROW_AUTOMATION_WORKFLOW_HISTORY_MAX_ENTRIES", 200)
 )
 
 TRASH_PAGE_SIZE_LIMIT = 200  # How many trash entries can be requested at once.
