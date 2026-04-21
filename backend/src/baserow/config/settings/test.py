@@ -112,6 +112,17 @@ CACHES = {
 # Look into tests.baserow.api.test_api_utils.py if you need to test the throttle
 REST_FRAMEWORK["DEFAULT_THROTTLE_CLASSES"] = []
 
+# Disable object caches (users, tokens, settings, licenses) so every request
+# hits the DB. This ensures query-count assertions remain stable and predictable.
+BASEROW_CACHE_TTL_SECONDS = 0
+
+# Tests should not inherit the anonymous IP throttle from any local env.
+BASEROW_THROTTLE_IP_ENABLED = False
+
+# Default TTL used by tests that call blacklist_token / blacklist_ip without
+# specifying one explicitly. Individual tests can still override this.
+BASEROW_THROTTLE_BLACKLIST_TTL_SECONDS = 10
+
 
 BUILDER_PUBLICLY_USED_PROPERTIES_CACHE_TTL_SECONDS = 10
 BUILDER_DISPATCH_ACTION_CACHE_TTL_SECONDS = 300

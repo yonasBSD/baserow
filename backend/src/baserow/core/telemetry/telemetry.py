@@ -159,9 +159,9 @@ def _setup_standard_backend_instrumentation():
 
     BotocoreInstrumentor().instrument()
     PsycopgInstrumentor().instrument()
-    RedisInstrumentor().instrument()
     RequestsInstrumentor().instrument()
     CeleryInstrumentor().instrument()
+    RedisInstrumentor().instrument()
 
 
 def _setup_django_process_instrumentation():

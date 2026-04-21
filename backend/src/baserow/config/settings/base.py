@@ -24,7 +24,7 @@ from baserow.config.settings.utils import (
     try_int,
 )
 from baserow.core.telemetry.utils import otel_is_enabled
-from baserow.throttling_types import RateLimit
+from baserow.throttling.types import RateLimit
 from baserow.version import VERSION
 
 # A comma separated list of feature flags used to enable in-progress or not ready
@@ -283,11 +283,18 @@ for key, value in os.environ.items():
 
         DATABASE_READ_REPLICAS.append(db_key)
 
-# Enable connection health checks for all database connections. This makes Django
-# verify that a database connection is still usable before each request/task, which
-# prevents "connection already closed" errors when connections are dropped by the
-# server, a load balancer, or a connection pooler.
+# Default 0 = new connection per request; each runs a locale-setting query.
+# Increase in WSGI to save those round-trips. In ASGI be careful: async tasks
+# open their own connections and persistent ones can exhaust the pool.
+BASEROW_CONN_MAX_AGE = int(os.getenv("BASEROW_CONN_MAX_AGE", 0))
+
+# Apply the configured connection reuse timeout consistently to every database.
+# Also enable connection health checks by default so Django verifies that a
+# connection is still usable before each request/task, which prevents
+# "connection already closed" errors when connections are dropped by the server,
+# a load balancer, or a connection pooler.
 for _db_key in DATABASES:
+    DATABASES[_db_key]["CONN_MAX_AGE"] = BASEROW_CONN_MAX_AGE
     DATABASES[_db_key].setdefault("CONN_HEALTH_CHECKS", True)
 
 DATABASE_ROUTERS = ["baserow.config.db_routers.ReadReplicaRouter"]
@@ -401,30 +408,42 @@ REST_FRAMEWORK = {
     "DEFAULT_SCHEMA_CLASS": "baserow.api.openapi.AutoSchema",
 }
 
-# Limits the number of concurrent requests per user.
-# If BASEROW_MAX_CONCURRENT_USER_REQUESTS is not set, then the default value of -1
-# will be used which means the throttling is disabled.
+# Throttling / rate-limiting — see docs/installation/configuration.md
 BASEROW_MAX_CONCURRENT_USER_REQUESTS = int(
     os.getenv("BASEROW_MAX_CONCURRENT_USER_REQUESTS", "") or -1
 )
+BASEROW_CONCURRENT_USER_REQUESTS_THROTTLE_TIMEOUT = int(
+    os.getenv("BASEROW_CONCURRENT_USER_REQUESTS_THROTTLE_TIMEOUT", 180)
+)
+BASEROW_THROTTLE_BLACKLIST_TTL_SECONDS = int(
+    os.getenv("BASEROW_THROTTLE_BLACKLIST_TTL_SECONDS", "") or -1
+)
+BASEROW_THROTTLE_IP_ENABLED = str_to_bool(os.getenv("BASEROW_THROTTLE_IP_ENABLED", ""))
 
 if BASEROW_MAX_CONCURRENT_USER_REQUESTS > 0:
     REST_FRAMEWORK["DEFAULT_THROTTLE_CLASSES"] = [
-        "baserow.throttling.ConcurrentUserRequestsThrottle",
+        "baserow.throttling.handler.ConcurrentUserRequestsThrottle",
     ]
 
     REST_FRAMEWORK["DEFAULT_THROTTLE_RATES"] = {
         "concurrent_user_requests": BASEROW_MAX_CONCURRENT_USER_REQUESTS
     }
 
+    if BASEROW_THROTTLE_BLACKLIST_TTL_SECONDS > 0:
+        # Insert after SecurityMiddleware so 429s still get security/CORS headers.
+        _security_idx = MIDDLEWARE.index(
+            "django.middleware.security.SecurityMiddleware"
+        )
+        MIDDLEWARE.insert(
+            _security_idx + 1,
+            "baserow.throttling.middleware.ThrottleBlacklistMiddleware",
+        )
+
     MIDDLEWARE += [
-        "baserow.middleware.ConcurrentUserRequestsMiddleware",
+        "baserow.throttling.middleware.ConcurrentUserRequestsMiddleware",
     ]
 
-# The maximum number of seconds that a request can be throttled for.
-BASEROW_CONCURRENT_USER_REQUESTS_THROTTLE_TIMEOUT = int(
-    os.getenv("BASEROW_CONCURRENT_USER_REQUESTS_THROTTLE_TIMEOUT", 30)
-)
+BASEROW_CACHE_TTL_SECONDS = int(os.getenv("BASEROW_CACHE_TTL_SECONDS", 0))
 
 PUBLIC_VIEW_AUTHORIZATION_HEADER = "Baserow-View-Authorization"
 
@@ -1254,6 +1273,12 @@ LOGGING = {
             "handlers": ["console"],
             "level": BASEROW_BACKEND_DATABASE_LOG_LEVEL,
             "propagate": True,
+        },
+        # Default to ERROR to suppress 429 spam under heavy throttling.
+        "django.request": {
+            "handlers": ["console"],
+            "level": os.getenv("BASEROW_DJANGO_REQUEST_LOG_LEVEL", "ERROR"),
+            "propagate": False,
         },
     },
     "root": {
