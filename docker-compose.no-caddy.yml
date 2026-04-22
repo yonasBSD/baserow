@@ -45,6 +45,7 @@ x-backend-variables:
   DATABASE_PORT:
   DATABASE_OPTIONS:
   DATABASE_URL:
+  BASEROW_CONN_MAX_AGE:
 
   # Set these if you want to use an external redis instead of the redis service below.
   REDIS_HOST:
@@ -86,6 +87,7 @@ x-backend-variables:
 
   BASEROW_AUTOMATION_HISTORY_PAGE_SIZE_LIMIT:
   BASEROW_AUTOMATION_WORKFLOW_RATE_LIMIT_MAX_RUNS:
+  BASEROW_AUTOMATION_WORKFLOW_RATE_LIMITS:
   BASEROW_AUTOMATION_WORKFLOW_RATE_LIMIT_CACHE_EXPIRY_SECONDS:
   BASEROW_AUTOMATION_WORKFLOW_HISTORY_RATE_LIMIT_CACHE_EXPIRY_SECONDS:
   BASEROW_AUTOMATION_WORKFLOW_MAX_CONSECUTIVE_ERRORS:
@@ -108,6 +110,7 @@ x-backend-variables:
 
   BASEROW_BACKEND_DEBUG:
   BASEROW_BACKEND_LOG_LEVEL:
+  BASEROW_DJANGO_REQUEST_LOG_LEVEL:
   FEATURE_FLAGS:
   BASEROW_ENABLE_OTEL:
   BASEROW_DEPLOYMENT_ENV:
@@ -165,6 +168,9 @@ x-backend-variables:
   BASEROW_PERIODIC_FIELD_UPDATE_QUEUE_NAME:
   BASEROW_MAX_CONCURRENT_USER_REQUESTS:
   BASEROW_CONCURRENT_USER_REQUESTS_THROTTLE_TIMEOUT:
+  BASEROW_THROTTLE_BLACKLIST_TTL_SECONDS:
+  BASEROW_CACHE_TTL_SECONDS:
+  BASEROW_THROTTLE_IP_ENABLED:
   BASEROW_SEND_VERIFY_EMAIL_RATE_LIMIT:
   BASEROW_LOGIN_ACTION_LOG_LIMIT:
   BASEROW_OSS_ONLY:
@@ -196,7 +202,7 @@ x-backend-variables:
 
 services:
   backend:
-    image: baserow/backend:2.2.0
+    image: baserow/backend:2.2.1
     restart: unless-stopped
     ports:
       - "${HOST_PUBLISH_IP:-127.0.0.1}:8000:8000"
@@ -211,7 +217,7 @@ services:
       local:
 
   web-frontend:
-    image: baserow/web-frontend:2.2.0
+    image: baserow/web-frontend:2.2.1
     restart: unless-stopped
     ports:
       - "${HOST_PUBLISH_IP:-127.0.0.1}:3000:3000"
@@ -246,6 +252,7 @@ services:
       BASEROW_FRONTEND_SAME_SITE_COOKIE:
       BASEROW_AUTOMATION_HISTORY_PAGE_SIZE_LIMIT:
       BASEROW_AUTOMATION_WORKFLOW_RATE_LIMIT_MAX_RUNS:
+      BASEROW_AUTOMATION_WORKFLOW_RATE_LIMITS:
       BASEROW_AUTOMATION_WORKFLOW_RATE_LIMIT_CACHE_EXPIRY_SECONDS:
       BASEROW_AUTOMATION_WORKFLOW_HISTORY_RATE_LIMIT_CACHE_EXPIRY_SECONDS:
       BASEROW_AUTOMATION_WORKFLOW_MAX_CONSECUTIVE_ERRORS:
@@ -258,7 +265,7 @@ services:
       local:
 
   celery:
-    image: baserow/backend:2.2.0
+    image: baserow/backend:2.2.1
     restart: unless-stopped
     environment:
       <<: *backend-variables
@@ -279,7 +286,7 @@ services:
       local:
 
   celery-export-worker:
-    image: baserow/backend:2.2.0
+    image: baserow/backend:2.2.1
     restart: unless-stopped
     command: celery-exportworker
     environment:
@@ -300,7 +307,7 @@ services:
       local:
 
   celery-beat-worker:
-    image: baserow/backend:2.2.0
+    image: baserow/backend:2.2.1
     restart: unless-stopped
     command: celery-beat
     environment:

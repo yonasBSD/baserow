@@ -424,12 +424,27 @@ class AutomationNodeHandler(metaclass=baserow_trace_methods(tracer)):
             logger.error(str(e))
             return None
 
-        node = self.get_node(node_id)
-        simulate_until_node = (
-            node.workflow.get_graph().get_node(workflow_history.simulate_until_node_id)
-            if workflow_history.simulate_until_node_id
-            else None
+        error = (
+            "Node with ID {} was not found. The node was likely "
+            "deleted before the task was executed."
         )
+        try:
+            node = self.get_node(node_id)
+        except AutomationNodeDoesNotExist:
+            logger.warning(error.format(node_id))
+            return None
+
+        try:
+            simulate_until_node = (
+                node.workflow.get_graph().get_node(
+                    workflow_history.simulate_until_node_id
+                )
+                if workflow_history.simulate_until_node_id
+                else None
+            )
+        except AutomationNodeDoesNotExist:
+            logger.warning(error.format(workflow_history.simulate_until_node_id))
+            return None
 
         if simulate_until_node:
             allowed_nodes = {
