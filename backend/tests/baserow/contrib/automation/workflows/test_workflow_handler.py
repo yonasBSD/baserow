@@ -28,6 +28,9 @@ from baserow.contrib.automation.workflows.exceptions import (
     AutomationWorkflowTooManyErrors,
 )
 from baserow.contrib.automation.workflows.handler import AutomationWorkflowHandler
+from baserow.core.cache import local_cache
+from baserow.core.notifications.models import Notification, NotificationRecipient
+from baserow.core.registries import ImportExportConfig
 from baserow.core.trash.handler import TrashHandler
 from tests.baserow.contrib.automation.history.utils import assert_history
 
@@ -122,6 +125,83 @@ def test_create_workflow_integrity_error(data_fixture):
             )
 
         assert str(exc_info.value) == "unexpected integrity error"
+
+
+@pytest.mark.django_db
+def test_export_workflow_excludes_notification_recipients_when_not_duplicating(
+    data_fixture,
+):
+    user = data_fixture.create_user()
+    automation = data_fixture.create_automation_application(user=user)
+    recipient = data_fixture.create_user(workspace=automation.workspace)
+    workflow = data_fixture.create_automation_workflow(automation=automation)
+    workflow.notification_recipients.add(recipient)
+
+    exported_workflow = AutomationWorkflowHandler().export_workflow(
+        workflow,
+        import_export_config=ImportExportConfig(
+            include_permission_data=True,
+            is_duplicate=False,
+        ),
+    )
+
+    assert exported_workflow["notification_recipient_emails"] == []
+
+
+@pytest.mark.django_db
+def test_exported_workflow_import_maps_notification_recipients_to_target_workspace(
+    data_fixture,
+):
+    source_workspace = data_fixture.create_workspace()
+    target_workspace = data_fixture.create_workspace()
+
+    shared_recipient = data_fixture.create_user(
+        email="shared-recipient@example.com", workspace=source_workspace
+    )
+    source_only_recipient = data_fixture.create_user(
+        email="source-only-recipient@example.com", workspace=source_workspace
+    )
+    target_only_user = data_fixture.create_user(
+        email="target-only-user@example.com", workspace=target_workspace
+    )
+    data_fixture.create_user_workspace(
+        workspace=target_workspace, user=shared_recipient
+    )
+
+    source_automation = data_fixture.create_automation_application(
+        workspace=source_workspace
+    )
+    source_workflow = data_fixture.create_automation_workflow(
+        automation=source_automation,
+        create_trigger=False,
+    )
+    source_workflow.notification_recipients.add(shared_recipient, source_only_recipient)
+
+    exported_workflow = AutomationWorkflowHandler().export_workflow(
+        source_workflow,
+        import_export_config=ImportExportConfig(
+            include_permission_data=True,
+            is_duplicate=True,
+        ),
+    )
+
+    assert exported_workflow["notification_recipient_emails"] == [
+        shared_recipient.email,
+        source_only_recipient.email,
+    ]
+
+    target_automation = data_fixture.create_automation_application(
+        workspace=target_workspace
+    )
+
+    imported_workflow = AutomationWorkflowHandler().import_workflow(
+        target_automation,
+        exported_workflow,
+        {},
+    )
+
+    assert list(imported_workflow.notification_recipients.all()) == [shared_recipient]
+    assert target_only_user not in imported_workflow.notification_recipients.all()
 
 
 @patch(f"{TRASH_TYPES_PATH}.automation_workflow_deleted")
@@ -323,6 +403,7 @@ def test_export_prepared_values(data_fixture):
         "name": "test",
         "allow_test_run_until": None,
         "state": WorkflowState.DRAFT,
+        "notification_recipients": [],
     }
 
 
@@ -454,12 +535,14 @@ def test_update_workflow_correctly_pauses_published_workflow(data_fixture):
         "name": "foo",
         "allow_test_run_until": None,
         "state": WorkflowState.DRAFT,
+        "notification_recipients": [],
     }
     assert updated.new_values == {
         "name": "foo",
         "allow_test_run_until": None,
         # The original workflow should indeed be unaffected
         "state": WorkflowState.DRAFT,
+        "notification_recipients": [],
     }
 
     published_workflow.refresh_from_db()
@@ -478,6 +561,29 @@ def test_get_original_workflow_returns_original_workflow(data_fixture):
     workflow = published_workflow.get_original()
 
     assert workflow == original_workflow
+
+
+@pytest.mark.django_db
+def test_get_original_workflow_uses_local_cache(
+    data_fixture, django_assert_num_queries
+):
+    original_workflow = data_fixture.create_automation_workflow()
+    published_workflow = data_fixture.create_automation_workflow(
+        state=WorkflowState.LIVE
+    )
+    published_workflow.automation.published_from = original_workflow
+    published_workflow.automation.save()
+
+    with local_cache.context():
+        cached_original_workflow = published_workflow.get_original()
+        reloaded_published_workflow = AutomationWorkflow.objects.select_related(
+            "automation"
+        ).get(id=published_workflow.id)
+
+        with django_assert_num_queries(0):
+            assert (
+                reloaded_published_workflow.get_original() is cached_original_workflow
+            )
 
 
 @pytest.mark.django_db
@@ -778,6 +884,53 @@ def test_disable_workflow_disables_published_workflow(data_fixture):
     assert original_workflow.state == WorkflowState.DISABLED
 
 
+@pytest.mark.django_db(transaction=True)
+def test_disable_workflow_notifies_selected_recipients(data_fixture):
+    workspace = data_fixture.create_workspace()
+    original_workflow = data_fixture.create_automation_workflow(
+        automation=data_fixture.create_automation_application(workspace=workspace)
+    )
+    recipient_1 = data_fixture.create_user(workspace=workspace)
+    recipient_2 = data_fixture.create_user(workspace=workspace)
+    published_workflow = data_fixture.create_automation_workflow(
+        automation=data_fixture.create_automation_application(workspace=workspace),
+        state=WorkflowState.LIVE,
+    )
+    published_workflow.automation.published_from = original_workflow
+    published_workflow.automation.save()
+    original_workflow.notification_recipients.add(recipient_1, recipient_2)
+
+    AutomationWorkflowHandler().disable_workflow(published_workflow)
+
+    notification = Notification.objects.get(type="automation_workflow_disabled")
+    assert notification.workspace == workspace
+    assert notification.data == {
+        "workspace_id": workspace.id,
+        "automation_id": original_workflow.automation_id,
+        "workflow_id": original_workflow.id,
+        "workflow_name": original_workflow.name,
+    }
+    assert set(
+        NotificationRecipient.objects.filter(notification=notification).values_list(
+            "recipient_id", flat=True
+        )
+    ) == {recipient_1.id, recipient_2.id}
+
+
+@pytest.mark.django_db(transaction=True)
+def test_disable_workflow_with_no_selected_recipients_does_not_notify(data_fixture):
+    original_workflow = data_fixture.create_automation_workflow()
+    published_workflow = data_fixture.create_automation_workflow(
+        state=WorkflowState.LIVE
+    )
+    published_workflow.automation.published_from = original_workflow
+    published_workflow.automation.save()
+
+    AutomationWorkflowHandler().disable_workflow(published_workflow)
+
+    assert Notification.objects.filter(type="automation_workflow_disabled").count() == 0
+
+
 @override_settings(AUTOMATION_WORKFLOW_MAX_CONSECUTIVE_ERRORS=5)
 @pytest.mark.django_db
 def test_check_too_many_errors_raises_if_above_limit(data_fixture):
@@ -798,14 +951,18 @@ def test_check_too_many_errors_raises_if_above_limit(data_fixture):
         AutomationWorkflowHandler()._check_too_many_errors(published_workflow) is False
     )
 
-    # This 6th error should cause True to be returned
+    # This 6th error should exceed the configured consecutive error limit.
     data_fixture.create_automation_workflow_history(
         workflow=original_workflow,
         status=HistoryStatusChoices.ERROR,
     )
 
-    assert (
-        AutomationWorkflowHandler()._check_too_many_errors(published_workflow) is True
+    with pytest.raises(AutomationWorkflowTooManyErrors) as exc:
+        AutomationWorkflowHandler()._check_too_many_errors(published_workflow)
+
+    assert str(exc.value) == (
+        "The workflow was disabled due to too many consecutive errors. "
+        "Limit exceeded: 5 consecutive errors."
     )
 
 
@@ -874,6 +1031,146 @@ def test_check_too_many_errors_returns_none_if_below_limit(data_fixture):
 
     # This should still be False, because it is below the threshold of 5
     AutomationWorkflowHandler()._check_too_many_errors(original_workflow)
+
+
+@override_settings(
+    AUTOMATION_WORKFLOW_MAX_CONSECUTIVE_ERRORS=10,
+    AUTOMATION_WORKFLOW_ERROR_LIMITS=((5, 30),),
+)
+@pytest.mark.django_db
+def test_check_too_many_errors_raises_if_above_error_window_limit(data_fixture):
+    original_workflow = data_fixture.create_automation_workflow()
+
+    with freeze_time("2026-03-10 09:59:00"):
+        published_workflow = data_fixture.create_automation_workflow(
+            state=WorkflowState.LIVE
+        )
+        published_workflow.automation.published_from = original_workflow
+        published_workflow.automation.save()
+
+    with freeze_time("2026-03-10 10:00:00"):
+        for _ in range(5):
+            data_fixture.create_automation_workflow_history(
+                workflow=original_workflow,
+                status=HistoryStatusChoices.ERROR,
+            )
+
+        assert (
+            AutomationWorkflowHandler()._check_too_many_errors(published_workflow)
+            is False
+        )
+
+        data_fixture.create_automation_workflow_history(
+            workflow=original_workflow,
+            status=HistoryStatusChoices.ERROR,
+        )
+
+        with pytest.raises(AutomationWorkflowTooManyErrors) as exc:
+            AutomationWorkflowHandler()._check_too_many_errors(published_workflow)
+
+        assert str(exc.value) == (
+            "The workflow was disabled due to too many recent errors. "
+            "Limit exceeded: 5 errors in 30 seconds."
+        )
+
+
+@override_settings(
+    AUTOMATION_WORKFLOW_MAX_CONSECUTIVE_ERRORS=10,
+    AUTOMATION_WORKFLOW_ERROR_LIMITS=((2, 5), (4, 60)),
+)
+@pytest.mark.django_db
+def test_check_too_many_errors_uses_multiple_error_windows(data_fixture):
+    original_workflow = data_fixture.create_automation_workflow()
+    with freeze_time("2026-03-10 09:59:00"):
+        published_workflow = data_fixture.create_automation_workflow(
+            state=WorkflowState.LIVE
+        )
+        published_workflow.automation.published_from = original_workflow
+        published_workflow.automation.save()
+
+    with freeze_time("2026-03-10 10:00:00"):
+        for _ in range(3):
+            data_fixture.create_automation_workflow_history(
+                workflow=original_workflow,
+                status=HistoryStatusChoices.ERROR,
+            )
+
+    with freeze_time("2026-03-10 10:00:10"):
+        assert (
+            AutomationWorkflowHandler()._check_too_many_errors(published_workflow)
+            is False
+        )
+
+    with freeze_time("2026-03-10 10:00:30"):
+        for _ in range(2):
+            data_fixture.create_automation_workflow_history(
+                workflow=original_workflow,
+                status=HistoryStatusChoices.ERROR,
+            )
+
+        with pytest.raises(AutomationWorkflowTooManyErrors) as exc:
+            AutomationWorkflowHandler()._check_too_many_errors(published_workflow)
+
+        assert str(exc.value) == (
+            "The workflow was disabled due to too many recent errors. "
+            "Limit exceeded: 4 errors in 60 seconds."
+        )
+
+
+@override_settings(
+    AUTOMATION_WORKFLOW_MAX_CONSECUTIVE_ERRORS=10,
+    AUTOMATION_WORKFLOW_ERROR_LIMITS=((2, 5), (4, 60), (10, 3600)),
+)
+@pytest.mark.django_db
+def test_check_too_many_errors_uses_a_single_query_for_multiple_windows(data_fixture):
+    original_workflow = data_fixture.create_automation_workflow()
+    with freeze_time("2026-03-10 09:59:00"):
+        published_workflow = data_fixture.create_automation_workflow(
+            state=WorkflowState.LIVE
+        )
+        published_workflow.automation.published_from = original_workflow
+        published_workflow.automation.save()
+
+    with freeze_time("2026-03-10 10:00:00"):
+        for _ in range(5):
+            data_fixture.create_automation_workflow_history(
+                workflow=original_workflow,
+                status=HistoryStatusChoices.ERROR,
+            )
+
+        with CaptureQueriesContext(connection) as queries:
+            with pytest.raises(AutomationWorkflowTooManyErrors) as exc:
+                AutomationWorkflowHandler()._check_too_many_errors(published_workflow)
+
+        assert str(exc.value) == (
+            "The workflow was disabled due to too many recent errors. "
+            "Limit exceeded: 2 errors in 5 seconds."
+        )
+
+    assert len(queries) == 2
+
+
+@override_settings(
+    AUTOMATION_WORKFLOW_MAX_CONSECUTIVE_ERRORS=10,
+    AUTOMATION_WORKFLOW_ERROR_LIMITS=((2, 30),),
+)
+@pytest.mark.django_db
+def test_check_too_many_errors_ignores_errors_before_latest_publish_for_windows(
+    data_fixture,
+):
+    original_workflow = data_fixture.create_automation_workflow()
+    handler = AutomationWorkflowHandler()
+
+    with freeze_time("2026-03-10 10:00:00"):
+        for _ in range(3):
+            data_fixture.create_automation_workflow_history(
+                workflow=original_workflow,
+                status=HistoryStatusChoices.ERROR,
+            )
+
+    with freeze_time("2026-03-10 12:00:00"):
+        published_workflow = handler.publish(original_workflow)
+        assert handler._check_too_many_errors(published_workflow) is False
 
 
 @patch(f"{WORKFLOWS_MODULE}.handler.automation_workflow_updated")
@@ -1242,7 +1539,8 @@ def test_async_start_workflow_rate_limited_runs_eventually_disable_workflow(
 
     assert histories[5].status == HistoryStatusChoices.DISABLED
     assert histories[5].message == (
-        "The workflow was disabled due to too many consecutive errors."
+        "The workflow was disabled due to too many consecutive errors. "
+        "Limit exceeded: 2 consecutive errors."
     )
 
     original_workflow.refresh_from_db()
