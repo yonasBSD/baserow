@@ -2,11 +2,13 @@ from typing import Dict
 
 from django.conf import settings
 from django.db import transaction
+from django.db.models import Count, Q
 
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
+from rest_framework.serializers import IntegerField
 from rest_framework.status import HTTP_202_ACCEPTED
 from rest_framework.views import APIView
 
@@ -14,7 +16,6 @@ from baserow.api.applications.errors import ERROR_APPLICATION_DOES_NOT_EXIST
 from baserow.api.decorators import map_exceptions, validate_body
 from baserow.api.jobs.errors import ERROR_MAX_JOB_COUNT_EXCEEDED
 from baserow.api.jobs.serializers import JobSerializer
-from baserow.api.pagination import PageNumberPagination
 from baserow.api.schemas import CLIENT_SESSION_ID_SCHEMA_PARAMETER, get_error_schema
 from baserow.api.serializers import get_example_pagination_serializer_class
 from baserow.contrib.automation.api.workflows.errors import (
@@ -23,12 +24,14 @@ from baserow.contrib.automation.api.workflows.errors import (
     ERROR_AUTOMATION_WORKFLOW_NOTIFICATION_RECIPIENTS_INVALID,
 )
 from baserow.contrib.automation.api.workflows.serializers import (
+    AutomationWorkflowHistoryPagination,
     AutomationWorkflowHistorySerializer,
     AutomationWorkflowSerializer,
     CreateAutomationWorkflowSerializer,
     OrderAutomationWorkflowsSerializer,
     UpdateAutomationWorkflowSerializer,
 )
+from baserow.contrib.automation.history.constants import HistoryStatusChoices
 from baserow.contrib.automation.history.service import AutomationHistoryService
 from baserow.contrib.automation.workflows.actions import (
     CreateAutomationWorkflowActionType,
@@ -231,7 +234,15 @@ class AutomationWorkflowHistoryView(APIView):
         description="Retrieve the history for a workflow.",
         responses={
             200: get_example_pagination_serializer_class(
-                AutomationWorkflowHistorySerializer
+                AutomationWorkflowHistorySerializer,
+                additional_fields={
+                    "success_count": IntegerField(
+                        help_text="The total number of successful workflow runs."
+                    ),
+                    "fail_count": IntegerField(
+                        help_text="The total number of failed workflow runs."
+                    ),
+                },
             ),
             404: get_error_schema(
                 [
@@ -251,16 +262,26 @@ class AutomationWorkflowHistoryView(APIView):
             request.user, workflow_id
         )
 
-        paginator = PageNumberPagination(
+        counts = queryset.aggregate(
+            success_count=Count("id", filter=Q(status=HistoryStatusChoices.SUCCESS)),
+            fail_count=Count("id", filter=Q(status=HistoryStatusChoices.ERROR)),
+        )
+
+        paginator = AutomationWorkflowHistoryPagination(
             limit_page_size=settings.AUTOMATION_HISTORY_PAGE_SIZE_LIMIT
         )
+
         page = paginator.paginate_queryset(queryset, request, self)
         serializer = AutomationWorkflowHistorySerializer(
             page,
             many=True,
         )
 
-        return paginator.get_paginated_response(serializer.data)
+        return paginator.get_paginated_response(
+            serializer.data,
+            success_count=counts["success_count"],
+            fail_count=counts["fail_count"],
+        )
 
 
 class OrderAutomationWorkflowsView(APIView):

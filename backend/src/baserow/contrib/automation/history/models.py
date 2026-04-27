@@ -20,10 +20,18 @@ class AutomationHistory(models.Model):
 
 
 class AutomationWorkflowHistory(AutomationHistory):
-    workflow = models.ForeignKey(
+    original_workflow = models.ForeignKey(
         "automation.AutomationWorkflow",
         on_delete=models.CASCADE,
         related_name="workflow_histories",
+        # TODO ZDM: Make non-nullable after next release and add backfill
+        # migration. See: https://github.com/baserow/baserow/issues/5236
+        null=True,
+    )
+    workflow = models.ForeignKey(
+        "automation.AutomationWorkflow",
+        on_delete=models.CASCADE,
+        related_name="cloned_workflow_histories",
     )
     simulate_until_node = models.ForeignKey(
         "automation.AutomationNode",

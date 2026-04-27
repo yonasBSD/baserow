@@ -10,14 +10,18 @@ import pytest
 from freezegun import freeze_time
 
 from baserow.contrib.automation.history.constants import HistoryStatusChoices
-from baserow.contrib.automation.history.models import AutomationWorkflowHistory
-from baserow.contrib.automation.models import AutomationWorkflow
+from baserow.contrib.automation.history.models import (
+    AutomationNodeHistory,
+    AutomationWorkflowHistory,
+)
+from baserow.contrib.automation.models import Automation, AutomationWorkflow
 from baserow.contrib.automation.nodes.node_types import (
     CorePeriodicTriggerNodeType,
     LocalBaserowRowsCreatedNodeTriggerType,
 )
 from baserow.contrib.automation.workflows.constants import (
     ALLOW_TEST_RUN_MINUTES,
+    WORKFLOW_DIRTY_CACHE_KEY,
     WorkflowState,
 )
 from baserow.contrib.automation.workflows.exceptions import (
@@ -28,7 +32,7 @@ from baserow.contrib.automation.workflows.exceptions import (
     AutomationWorkflowTooManyErrors,
 )
 from baserow.contrib.automation.workflows.handler import AutomationWorkflowHandler
-from baserow.core.cache import local_cache
+from baserow.core.cache import global_cache, local_cache
 from baserow.core.notifications.models import Notification, NotificationRecipient
 from baserow.core.registries import ImportExportConfig
 from baserow.core.trash.handler import TrashHandler
@@ -429,13 +433,24 @@ def test_publish_returns_published_workflow(data_fixture):
 @pytest.mark.django_db
 def test_publish_cleans_up_old_workflows(data_fixture):
     workflow = data_fixture.create_automation_workflow()
+    handler = AutomationWorkflowHandler()
 
-    published_1 = AutomationWorkflowHandler().publish(workflow)
-    published_2 = AutomationWorkflowHandler().publish(workflow)
-    published_3 = AutomationWorkflowHandler().publish(workflow)
-    published_4 = AutomationWorkflowHandler().publish(workflow)
+    test_clone_automation, _ = handler._clone_workflow(
+        workflow, WorkflowState.TEST_CLONE
+    )
+    test_clone_workflow = test_clone_automation.workflows.first()
+    data_fixture.create_automation_workflow_history(
+        original_workflow=workflow,
+        workflow=test_clone_workflow,
+        status=HistoryStatusChoices.SUCCESS,
+    )
 
-    # The first two workflows should no longer exist
+    published_1 = handler.publish(workflow)
+    published_2 = handler.publish(workflow)
+    published_3 = handler.publish(workflow)
+    published_4 = handler.publish(workflow)
+
+    # The first two published workflows should no longer exist
     assert AutomationWorkflow.objects_and_trash.filter(id=published_1.id).count() == 0
     assert AutomationWorkflow.objects_and_trash.filter(id=published_2.id).count() == 0
 
@@ -445,6 +460,53 @@ def test_publish_cleans_up_old_workflows(data_fixture):
 
     # The latest published workflow should be active
     assert published_4.is_published is True
+
+    # The test clone should still exist and the state should still be correct
+    test_clone_workflow.refresh_from_db()
+    assert AutomationWorkflow.objects_and_trash.filter(
+        id=test_clone_workflow.id
+    ).exists()
+    assert test_clone_workflow.state == WorkflowState.TEST_CLONE
+
+
+@pytest.mark.django_db
+def test_publish_disables_live_workflow(data_fixture):
+    workflow = data_fixture.create_automation_workflow()
+    handler = AutomationWorkflowHandler()
+
+    # Publish the workflow
+    published = handler.publish(workflow)
+    data_fixture.create_automation_workflow_history(
+        original_workflow=workflow,
+        workflow=published,
+        status=HistoryStatusChoices.SUCCESS,
+    )
+    assert published.state == WorkflowState.LIVE
+
+    # Edit the draft to force _ensure_published_for_run to create a new clone
+    workflow.refresh_from_db()
+    workflow.save()
+
+    # Create a test clone to simulate a test run
+    test_clone_automation, _ = handler._clone_workflow(
+        workflow, WorkflowState.TEST_CLONE
+    )
+    test_clone_workflow = test_clone_automation.workflows.first()
+
+    # The test clone should be the newest automation
+    assert test_clone_automation.id > published.automation.id
+
+    # The previously published workflow should now be disabled
+    new_published = handler.publish(workflow)
+    published.refresh_from_db()
+    assert published.state == WorkflowState.DISABLED
+
+    # Make sure the newly published workflow is live
+    assert new_published.state == WorkflowState.LIVE
+
+    # The test clone should be unaffected
+    test_clone_workflow.refresh_from_db()
+    assert test_clone_workflow.state == WorkflowState.TEST_CLONE
 
 
 @pytest.mark.django_db
@@ -510,6 +572,27 @@ def test_get_published_workflow_returns_workflow(data_fixture):
 
     # Should return the published workflow
     assert result == published_workflow
+
+
+@pytest.mark.django_db
+def test_get_published_workflow_ignores_newer_test_clone(data_fixture):
+    workflow = data_fixture.create_automation_workflow()
+    handler = AutomationWorkflowHandler()
+
+    published_workflow = handler.publish(workflow)
+    test_clone_automation, _ = handler._clone_workflow(
+        workflow, WorkflowState.TEST_CLONE
+    )
+    test_clone_workflow = test_clone_automation.workflows.first()
+
+    # Sanity check that the newer clone would win without the TEST_CLONE exclusion.
+    assert test_clone_automation.id > published_workflow.automation.id
+    assert test_clone_workflow.state == WorkflowState.TEST_CLONE
+
+    result = handler.get_published_workflow(workflow, with_cache=False)
+
+    assert result == published_workflow
+    assert result != test_clone_workflow
 
 
 @pytest.mark.django_db
@@ -833,7 +916,9 @@ def test_async_start_workflow_creates_rate_limited_history_once_until_cache_rese
         handler.async_start_workflow(published_workflow)
         handler.async_start_workflow(published_workflow)
 
-    histories = AutomationWorkflowHistory.objects.filter(workflow=original_workflow)
+    histories = AutomationWorkflowHistory.objects.filter(
+        original_workflow=original_workflow
+    )
     assert histories.count() == 1
     assert_history(
         original_workflow,
@@ -847,7 +932,9 @@ def test_async_start_workflow_creates_rate_limited_history_once_until_cache_rese
     with freeze_time("2026-01-26 13:00:06"):
         handler.async_start_workflow(published_workflow)
 
-    histories = AutomationWorkflowHistory.objects.filter(workflow=original_workflow)
+    histories = AutomationWorkflowHistory.objects.filter(
+        original_workflow=original_workflow
+    )
     assert histories.count() == 2
 
 
@@ -1185,7 +1272,7 @@ def test_toggle_test_mode_on(
 
     frozen_time = "2025-06-04 11:00"
     with freeze_time(frozen_time):
-        AutomationWorkflowHandler().toggle_test_run(workflow)
+        AutomationWorkflowHandler().toggle_test_run(workflow, None)
 
     workflow.refresh_from_db()
 
@@ -1210,7 +1297,7 @@ def test_toggle_test_mode_on_immediate(
 
     frozen_time = "2025-06-04 11:00"
     with freeze_time(frozen_time):
-        AutomationWorkflowHandler().toggle_test_run(workflow)
+        AutomationWorkflowHandler().toggle_test_run(workflow, None)
 
     workflow.refresh_from_db()
 
@@ -1234,7 +1321,7 @@ def test_toggle_test_mode_off(
         trigger_type=LocalBaserowRowsCreatedNodeTriggerType.type,
     )
 
-    AutomationWorkflowHandler().toggle_test_run(workflow)
+    AutomationWorkflowHandler().toggle_test_run(workflow, None)
 
     workflow.refresh_from_db()
 
@@ -1436,12 +1523,13 @@ def test_async_start_workflow_with_simulate_until_node(
     workflow.refresh_from_db()
     history = workflow.workflow_histories.get()
 
+    cloned_trigger = history.workflow.get_trigger()
+    assert history.simulate_until_node_id == cloned_trigger.id
     assert workflow.simulate_until_node is None
     assert history.is_test_run is True
-    assert history.simulate_until_node_id == trigger.id
 
     mock_start_workflow_celery_task.delay.assert_called_once_with(
-        workflow.id, history.id
+        history.workflow_id, history.id
     )
 
 
@@ -1510,9 +1598,9 @@ def test_async_start_workflow_rate_limited_runs_eventually_disable_workflow(
         AutomationWorkflowHandler().async_start_workflow(published_workflow)
 
     histories = list(
-        AutomationWorkflowHistory.objects.filter(workflow=original_workflow).order_by(
-            "started_on", "id"
-        )
+        AutomationWorkflowHistory.objects.filter(
+            original_workflow=original_workflow
+        ).order_by("started_on", "id")
     )
 
     assert len(histories) == 6
@@ -1553,8 +1641,12 @@ def test_async_start_workflow_rate_limited_runs_eventually_disable_workflow(
 @pytest.mark.django_db
 @patch(f"{WORKFLOWS_MODULE}.handler.transaction.on_commit")
 @patch(f"{WORKFLOWS_MODULE}.handler.start_workflow_celery_task")
+@patch(f"{WORKFLOWS_MODULE}.handler.automation_workflow_dispatch_started")
 def test_async_start_workflow_queues_celery_task_on_commit(
-    mock_start_workflow_celery_task, mock_on_commit, data_fixture
+    mock_automation_workflow_dispatch_started,
+    mock_start_workflow_celery_task,
+    mock_on_commit,
+    data_fixture,
 ):
     workflow = data_fixture.create_automation_workflow()
 
@@ -1563,13 +1655,19 @@ def test_async_start_workflow_queues_celery_task_on_commit(
     AutomationWorkflowHandler().async_start_workflow(workflow)
 
     history = workflow.workflow_histories.get()
+    # Ensure the workflow_id is the cloned workflow, not the draft
+    assert history.workflow_id != workflow.id
 
     mock_on_commit.assert_called_once()
     mock_start_workflow_celery_task.delay.assert_not_called()
 
     mock_on_commit.call_args.args[0]()
     mock_start_workflow_celery_task.delay.assert_called_once_with(
-        workflow.id, history.id
+        history.workflow_id, history.id
+    )
+    mock_automation_workflow_dispatch_started.send.assert_called_once_with(
+        sender=None,
+        workflow_history=history,
     )
 
 
@@ -1670,14 +1768,27 @@ def test_before_run_marks_timed_out_started_history_as_failed(data_fixture):
             workflow=original_workflow,
             status=HistoryStatusChoices.STARTED,
         )
+        node_history = AutomationNodeHistory.objects.create(
+            workflow_history=timed_out_history,
+            node=original_workflow.get_trigger(),
+            started_on=timed_out_history.started_on,
+            status=HistoryStatusChoices.STARTED,
+        )
 
     with freeze_time("2026-03-10 12:00:00"):
         AutomationWorkflowHandler().before_run(published_workflow)
 
-    timed_out_history.refresh_from_db()
+    error_message = "This workflow took too long and was timed out."
 
+    timed_out_history.refresh_from_db()
     assert timed_out_history.status == HistoryStatusChoices.ERROR
-    assert timed_out_history.message == "This workflow took too long and was timed out."
+    assert timed_out_history.message == error_message
+    assert timed_out_history.completed_on is not None
+
+    node_history.refresh_from_db()
+    assert node_history.status == HistoryStatusChoices.ERROR
+    assert node_history.message == error_message
+    assert node_history.completed_on == timed_out_history.completed_on
 
 
 @pytest.mark.django_db
@@ -1758,3 +1869,200 @@ def test_clear_old_history_excludes_started_workflows_max_days(data_fixture):
 
     assert workflow.workflow_histories.filter(id=history_1.id).exists() is True
     assert workflow.workflow_histories.filter(id=history_2.id).exists() is False
+
+
+@pytest.mark.django_db
+def test_ensure_published_for_run_creates_new_clone(data_fixture):
+    workflow = data_fixture.create_automation_workflow()
+
+    cloned_workflow = AutomationWorkflowHandler()._ensure_published_for_run(workflow)
+
+    # Ensure that the cloned workflow is a new workflow
+    assert cloned_workflow.id != workflow.id
+    assert cloned_workflow.automation.published_from == workflow
+    assert cloned_workflow.state == WorkflowState.TEST_CLONE
+
+
+@pytest.mark.django_db
+def test_ensure_published_for_run_creates_new_after_workflow_update(data_fixture):
+    workflow = data_fixture.create_automation_workflow()
+
+    handler = AutomationWorkflowHandler()
+
+    cloned_workflow_1 = handler._ensure_published_for_run(workflow)
+
+    # Set the dirty flag to trigger a new clone
+    cache_key = WORKFLOW_DIRTY_CACHE_KEY.format(workflow.id)
+    global_cache.update(cache_key, lambda _: True)
+
+    cloned_workflow_2 = handler._ensure_published_for_run(workflow)
+
+    # Because the workflow was updated, a new clone should be created
+    assert cloned_workflow_1.id != cloned_workflow_2.id
+
+
+@pytest.mark.django_db
+def test_ensure_published_for_run_reuse_automation(data_fixture):
+    """
+    If a cloned automation exists and is still fresh (no edits to draft
+    since publish), we should reuse it rather than creating a new clone.
+    """
+
+    workflow = data_fixture.create_automation_workflow()
+
+    handler = AutomationWorkflowHandler()
+
+    cloned_workflow = handler._ensure_published_for_run(workflow)
+
+    second_cloned_workflow = handler._ensure_published_for_run(workflow)
+
+    assert cloned_workflow.automation_id == second_cloned_workflow.automation_id
+
+
+@pytest.mark.django_db
+def test_ensure_published_for_run_ignores_published_workflow_states(data_fixture):
+    workflow = data_fixture.create_automation_workflow()
+    handler = AutomationWorkflowHandler()
+
+    published_workflow = handler.publish(workflow)
+    clone = handler._ensure_published_for_run(workflow)
+    second_clone = handler._ensure_published_for_run(workflow)
+
+    assert published_workflow.state == WorkflowState.LIVE
+    assert clone.id != published_workflow.id
+    assert clone.state == WorkflowState.TEST_CLONE
+    assert clone.automation.published_from == workflow
+    assert second_clone.id == clone.id
+
+    handler.update_workflow(workflow, state=WorkflowState.PAUSED)
+    published_workflow.refresh_from_db()
+
+    clone_after = handler._ensure_published_for_run(workflow)
+    second_clone_after = handler._ensure_published_for_run(workflow)
+
+    assert published_workflow.state == WorkflowState.PAUSED
+    assert clone_after.id == clone.id
+    assert clone_after.id != published_workflow.id
+    assert clone_after.state == WorkflowState.TEST_CLONE
+    assert clone_after.automation.published_from == workflow
+    assert second_clone_after.id == clone_after.id
+
+
+@pytest.mark.django_db
+def test_publish_preserves_old_live_automation_with_history(data_fixture):
+    """
+    When re-publishing, old live automations that have history entries
+    pointing at them should not be deleted.
+    """
+
+    workflow = data_fixture.create_automation_workflow()
+    handler = AutomationWorkflowHandler()
+
+    published = handler.publish(workflow)
+    published_automation = published.automation
+
+    # Create a history entry pointing to the first published automation
+    data_fixture.create_automation_workflow_history(
+        original_workflow=workflow,
+        workflow=published,
+        status=HistoryStatusChoices.SUCCESS,
+    )
+
+    # Publish twice. Normally, this would deleted the oldest published entry.
+    handler.publish(workflow)
+    handler.publish(workflow)
+
+    # The first automation shouldn't be deleted because it has history entries
+    assert Automation.objects.filter(id=published_automation.id).exists()
+
+
+@override_settings(
+    AUTOMATION_WORKFLOW_HISTORY_MAX_ENTRIES=100,
+    AUTOMATION_WORKFLOW_HISTORY_MAX_DAYS=1,
+)
+@pytest.mark.django_db
+def test_clear_old_history_deletes_orphaned_automations(data_fixture):
+    """
+    When history entries are cleaned up, any published automations
+    that no longer have history entries pointing at them should be deleted.
+    """
+
+    workflow = data_fixture.create_automation_workflow()
+    handler = AutomationWorkflowHandler()
+
+    with freeze_time("2026-04-20 11:00:00"):
+        cloned_workflow = handler._ensure_published_for_run(workflow)
+
+    clone_automation_id = cloned_workflow.automation_id
+
+    handler.publish(workflow)
+
+    with freeze_time("2026-04-20 12:00:00"):
+        data_fixture.create_automation_workflow_history(
+            original_workflow=workflow,
+            workflow=cloned_workflow,
+            status=HistoryStatusChoices.SUCCESS,
+        )
+
+    # 12 hours later but within 1 day, so history survives
+    with freeze_time("2026-04-21 00:00:00"):
+        handler._clear_old_history(workflow)
+
+    assert Automation.objects.filter(id=clone_automation_id).exists()
+
+    # 2 days later, so history should have been deleted, and the cloned
+    # automation should be pruned as well.
+    with freeze_time("2026-04-22 12:00:00"):
+        handler._clear_old_history(workflow)
+
+    assert not Automation.objects.filter(id=clone_automation_id).exists()
+
+
+@pytest.mark.django_db
+def test_clear_old_history_keeps_live_published_automation_when_newer_test_clone_exists(
+    data_fixture,
+):
+    workflow = data_fixture.create_automation_workflow()
+    handler = AutomationWorkflowHandler()
+
+    with freeze_time("2026-04-27 12:00:00"):
+        published_workflow = handler.publish(workflow)
+        test_clone_workflow = handler._ensure_published_for_run(workflow)
+
+    assert test_clone_workflow.automation_id != published_workflow.automation_id
+    assert test_clone_workflow.automation_id > published_workflow.automation_id
+
+    with freeze_time("2026-04-27 12:01:00"):
+        handler._clear_old_history(workflow)
+
+    assert Automation.objects.filter(id=published_workflow.automation_id).exists()
+    assert not Automation.objects.filter(id=test_clone_workflow.automation_id).exists()
+
+
+@pytest.mark.django_db
+@patch(f"{WORKFLOWS_MODULE}.handler.start_workflow_celery_task")
+def test_async_start_workflow_test_run_creates_test_clone(
+    mock_start_workflow_celery_task, data_fixture, django_capture_on_commit_callbacks
+):
+    """
+    When async_start_workflow is called, it should call the celery task
+    using a history that is based on a cloned workflow, not the draft.
+    """
+
+    workflow = data_fixture.create_automation_workflow()
+
+    with django_capture_on_commit_callbacks(execute=True):
+        AutomationWorkflowHandler().async_start_workflow(workflow)
+
+    history = workflow.workflow_histories.get()
+
+    # History's workflow should be a clone, not the draft
+    assert history.original_workflow == workflow
+    assert history.is_test_run is True
+    assert history.workflow_id != workflow.id
+    assert history.workflow.automation.published_from == workflow
+    assert history.workflow.state == WorkflowState.TEST_CLONE
+
+    mock_start_workflow_celery_task.delay.assert_called_once_with(
+        history.workflow_id, history.id
+    )
