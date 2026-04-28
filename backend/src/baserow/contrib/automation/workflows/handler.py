@@ -7,7 +7,7 @@ from django.conf import settings
 from django.contrib.auth.models import AbstractUser
 from django.core.files.storage import Storage
 from django.db import transaction
-from django.db.models import Q, QuerySet
+from django.db.models import OuterRef, Q, QuerySet, Subquery
 from django.utils import timezone
 
 from celery.canvas import Signature, chain
@@ -854,40 +854,42 @@ class AutomationWorkflowHandler(metaclass=baserow_trace_methods(tracer)):
                 # except if we are updating the trigger sample data by itself
                 self.async_start_workflow(workflow)
 
-    def _clear_old_history(self, original_workflow: AutomationWorkflow) -> None:
+    def clear_old_history(self) -> None:
         """
-        Clear any old history entries related to the workflow.
+        Clears any old history entries across all workflows.
 
-        It will delete any history entries that are older than MAX_HISTORY_DAYS and only
-        keep the most recent MAX_HISTORY_ENTRIES entries.
-
-        TODO: refactor this once https://github.com/baserow/baserow/pull/5166
-            is merged in.
+        It will delete any history entries that are older than MAX_HISTORY_DAYS
+        and only keep the most recent MAX_HISTORY_ENTRIES entries.
         """
 
+        # Delete all history entries older than max days
         oldest_history_date = timezone.now() - timedelta(
             days=settings.AUTOMATION_WORKFLOW_HISTORY_MAX_DAYS
         )
-        original_workflow.workflow_histories.exclude(
+        AutomationWorkflowHistory.objects.exclude(
             status=HistoryStatusChoices.STARTED
         ).filter(started_on__lt=oldest_history_date).delete()
 
-        history_ids_to_keep = list(
-            original_workflow.workflow_histories.order_by("-started_on").values_list(
-                "id", flat=True
-            )[: settings.AUTOMATION_WORKFLOW_HISTORY_MAX_ENTRIES]
+        # Delete all history entries older than max entries
+        max_entries = settings.AUTOMATION_WORKFLOW_HISTORY_MAX_ENTRIES
+        cutoff_date = Subquery(
+            AutomationWorkflowHistory.objects.filter(
+                original_workflow_id=OuterRef("original_workflow_id")
+            )
+            .order_by("-started_on")
+            # A Subquery must return a single value, so we return
+            # the started_on of the oldest history entry from the
+            # latest max_entries entries.
+            .values("started_on")[max_entries - 1 : max_entries]
         )
-        original_workflow.workflow_histories.exclude(
+        AutomationWorkflowHistory.objects.exclude(
             status=HistoryStatusChoices.STARTED
-        ).exclude(id__in=history_ids_to_keep).delete()
+        ).filter(started_on__lt=cutoff_date).delete()
 
         # Clean up published automations that no longer have any history entries
-        active_published = self.get_published_workflow(
-            original_workflow, with_cache=False
-        )
         empty_published = (
             Automation.objects.filter(
-                published_from=original_workflow,
+                published_from__isnull=False,
             )
             .exclude(workflows__cloned_workflow_histories__isnull=False)
             # _ensure_published_for_run() is called to potentially create a
@@ -898,14 +900,19 @@ class AutomationWorkflowHandler(metaclass=baserow_trace_methods(tracer)):
                 created_on__gte=timezone.now() - timedelta(seconds=5),
             )
         )
-        if active_published:
-            empty_published = empty_published.exclude(id=active_published.automation_id)
+
+        # Exclude any automation that is currently the active published workflow
+        active_published_ids = list(
+            AutomationWorkflow.objects.filter(
+                state=WorkflowState.LIVE,
+            ).values_list("automation_id", flat=True)
+        )
+        if active_published_ids:
+            empty_published = empty_published.exclude(id__in=active_published_ids)
 
         empty_published.delete()
 
-    def _mark_failure_for_timed_out_history(
-        self, original_workflow: AutomationWorkflow
-    ) -> None:
+    def mark_failure_for_timed_out_history(self) -> None:
         """
         If an history entry is still not finished after a certain duration, this execution
         is marked as failed.
@@ -919,7 +926,7 @@ class AutomationWorkflowHandler(metaclass=baserow_trace_methods(tracer)):
         error = "This workflow took too long and was timed out."
 
         workflow_history_ids = list(
-            original_workflow.workflow_histories.filter(
+            AutomationWorkflowHistory.objects.filter(
                 status=HistoryStatusChoices.STARTED,
                 started_on__lt=max_history_date,
             ).values_list("id", flat=True)
@@ -1106,13 +1113,6 @@ class AutomationWorkflowHandler(metaclass=baserow_trace_methods(tracer)):
         # If we don't come from an event, we need to reset the states to prevent
         # another execution
         self.reset_workflow_temporary_states(original_workflow)
-
-        # If we have history entries that are too old it probably means something
-        # went wrong with Celery so we mark these entries as failed.
-        self._mark_failure_for_timed_out_history(original_workflow)
-
-        # We remove old history entries to avoid storing too many entries.
-        self._clear_old_history(original_workflow)
 
         self._check_too_many_errors(workflow)
 

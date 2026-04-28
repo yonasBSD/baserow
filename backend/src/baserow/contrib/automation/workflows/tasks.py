@@ -1,5 +1,7 @@
+from datetime import timedelta
 from typing import Optional
 
+from django.conf import settings
 from django.utils import timezone
 
 from celery.canvas import Signature
@@ -74,3 +76,22 @@ def handle_workflow_dispatch_done(
             sender=None,
             workflow_history=history,
         )
+
+
+@app.task(queue="automation_workflow")
+def automation_periodic_cleanup():
+    from baserow.contrib.automation.workflows.handler import AutomationWorkflowHandler
+
+    handler = AutomationWorkflowHandler()
+    handler.mark_failure_for_timed_out_history()
+    handler.clear_old_history()
+
+
+@app.on_after_finalize.connect
+def setup_periodic_automation_tasks(sender, **kwargs):
+    sender.add_periodic_task(
+        timedelta(
+            minutes=settings.AUTOMATION_WORKFLOW_HISTORY_CLEANUP_INTERVAL_MINUTES
+        ),
+        automation_periodic_cleanup.s(),
+    )
